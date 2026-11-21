@@ -1,0 +1,45 @@
+# Unpacks an uploaded source bundle (ph-src.zip) into the repository, fetches
+# the third-party JavaScript libraries from npm (checked against the SHA-256
+# sums in the bundle), then starts the Android app build. Runs when a bundle is
+# uploaded to the repo's top folder.
+name: Import source
+on:
+  push:
+    branches: [main]
+    paths: ["ph-src.zip", ".github/workflows/import-source.yml"]
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: write
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unpack
+        run: |
+          set -euo pipefail
+          [ -f ph-src.zip ] || { echo "no bundle to import"; exit 0; }
+          unzip -oq ph-src.zip
+          V=web/slicer/vendor; T=$(mktemp -d)
+          get() { (cd "$T" && npm pack "$1" --silent >/dev/null && mkdir -p "$2" && tar xzf "$2"-*.tgz -C "$2" --strip-components=1); }
+          get three@0.170.0 three
+          get three-mesh-bvh@0.8.3 three-mesh-bvh
+          get fflate@0.8.2 fflate
+          get meshoptimizer@1.1.1 meshoptimizer
+          cp "$T/three/build/three.module.js" "$T/three/examples/jsm/loaders/OBJLoader.js" "$T/three/examples/jsm/loaders/STLLoader.js" "$T/three/examples/jsm/controls/OrbitControls.js" "$T/three/examples/jsm/controls/TransformControls.js" "$V/"
+          cp "$T/three-mesh-bvh/build/index.module.js" "$V/three-mesh-bvh.js"
+          cp "$T/fflate/esm/browser.js" "$V/fflate.js"
+          cp "$T/meshoptimizer/meshopt_simplifier.js" "$V/meshopt_simplifier.js"
+          (cd "$V" && sha256sum -c "$GITHUB_WORKSPACE/vendor.sha256")
+          git rm -q --cached --ignore-unmatch ph-src.zip
+          rm -f ph-src.zip vendor.sha256
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Import PrintHarbor source"
+          git push
+      - name: Start the Android app build
+        run: gh workflow run build-app.yml --ref main
+        env:
+          GH_TOKEN: ${{ github.token }}
