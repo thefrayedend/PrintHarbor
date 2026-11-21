@@ -73,15 +73,25 @@ class AppModel extends ChangeNotifier {
       for (final url in tries.toSet()) {
         if (await _try(url)) return true;
       }
+      var scanned = '';
       if (search) {
+        final self = await wifiIp();
         final found = await findBoards(_defaultPort);
         if (found.length == 1 && await _try(found.first)) return true;
         if (found.length > 1) {
           error = 'Found ${found.length} PrintHarbor servers — type the one you want in Settings.';
           return false;
         }
+        scanned = self == null
+            ? ' The phone does not seem to be on Wi-Fi, so the network could not be searched.'
+            : ' Nothing on this Wi-Fi (${self.substring(0, self.lastIndexOf('.'))}.x) answered as PrintHarbor on port $_defaultPort either.';
       }
-      error ??= 'No PrintHarbor found. Check the phone is on the same Wi-Fi, or type its address in Settings.';
+      // Say plainly what failed and what to do, instead of the last raw error.
+      final named = h.isNotEmpty && !h.startsWith('http') && !RegExp(r'^\d+\.\d+\.\d+\.\d+(:\d+)?$').hasMatch(h);
+      error = (named ? 'The name "$h" was not found from this phone.' : 'PrintHarbor did not answer at "$h".') +
+          scanned +
+          ' Check that PrintHarbor is running, that the phone is on the same Wi-Fi as the PC (not a guest network), and that '
+              'Windows Firewall on the PC allows PrintHarbor. Typing the PC\'s IP address here also works.';
       return false;
     } finally {
       connecting = false;

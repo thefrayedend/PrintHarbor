@@ -50,3 +50,30 @@ func TestWantsAndAnswer(t *testing.T) {
 		t.Fatal("responses must not be treated as questions")
 	}
 }
+
+// The answer must name only the address on the asker's own network: a PC with
+// a virtual adapter must not send a phone to that adapter's address.
+func TestAnswerForPicksTheAskersNetwork(t *testing.T) {
+	mk := func(cidr string) *net.IPNet {
+		ip, n, err := net.ParseCIDR(cidr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return &net.IPNet{IP: ip.To4(), Mask: n.Mask}
+	}
+	lan, virt := mk("192.168.1.40/24"), mk("172.28.80.1/20")
+	all := []net.IP{virt.IP, lan.IP}
+
+	ips, mine := answerFor(net.ParseIP("192.168.1.77"), []*net.IPNet{lan, virt}, all)
+	if !mine || len(ips) != 1 || !ips[0].Equal(lan.IP) {
+		t.Fatalf("phone on the LAN got %v (mine=%v), want only %v", ips, mine, lan.IP)
+	}
+	ips, mine = answerFor(net.ParseIP("172.28.81.9"), []*net.IPNet{lan, virt}, all)
+	if !mine || len(ips) != 1 || !ips[0].Equal(virt.IP) {
+		t.Fatalf("asker on the virtual network got %v, want only %v", ips, virt.IP)
+	}
+	ips, mine = answerFor(net.ParseIP("10.9.9.9"), []*net.IPNet{lan, virt}, all)
+	if mine || len(ips) != 2 {
+		t.Fatalf("asker on no known network got %v (mine=%v), want every address", ips, mine)
+	}
+}

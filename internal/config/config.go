@@ -23,8 +23,11 @@ var DefaultSliceArgs = []string{
 }
 
 type Config struct {
-	Listen              string   `json:"listen"`
-	DataDir             string   `json:"data_dir"`
+	Listen  string `json:"listen"`
+	DataDir string `json:"data_dir"`
+	// NoPort80: PrintHarbor also answers on port 80 when it is free, so
+	// http://harbor.local works without ":7621". Set this to true to stop that.
+	NoPort80            bool     `json:"no_port_80,omitempty"`
 	OrcaPath            string   `json:"orca_path"`
 	OrcaProfilesDir     string   `json:"orca_profiles_dir"`
 	OrcaUserPresetsDir  string   `json:"orca_user_presets_dir,omitempty"`

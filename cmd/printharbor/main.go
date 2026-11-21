@@ -168,6 +168,29 @@ func main() {
 	go func() { served <- srv.Serve(ln) }()
 	log.Printf("Ready: %s", localURL)
 
+	// Also answer on the ordinary web port, so http://harbor.local works
+	// without ":7621" on the end. Best effort: another web server on this
+	// computer may already have port 80, and then only the full address works.
+	if port != "80" && !cfg.NoPort80 {
+		go func() {
+			host, _, _ := net.SplitHostPort(cfg.Listen)
+			var ln80 net.Listener
+			var err error
+			for i := 0; i < 40; i++ { // after a restart the old copy needs a moment to let go
+				if ln80, err = net.Listen("tcp", net.JoinHostPort(host, "80")); err == nil || !*restarted {
+					break
+				}
+				time.Sleep(250 * time.Millisecond)
+			}
+			if err != nil {
+				log.Printf("Port 80 isn't free (%v), so the short address without :%s won't work; the full address does.", err, port)
+				return
+			}
+			log.Printf("Also on port 80: the address works without :%s", port)
+			_ = srv.Serve(ln80)
+		}()
+	}
+
 	removeTray := func() {}
 	if runtime.GOOS == "windows" && !*noTray {
 		exe, _ := os.Executable()

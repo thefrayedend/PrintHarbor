@@ -10,32 +10,175 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
+	"time"
 )
 
 var group = &net.UDPAddr{IP: net.IPv4(224, 0, 0, 251), Port: 5353}
 
 // Run answers queries until ctx is cancelled.
+//
+// It listens on every network adapter, not just the one the system would pick
+// by default: on a PC with more than one adapter (Wi-Fi and Ethernet, or the
+// virtual adapters that WSL, Hyper-V, VirtualBox and VPNs add) the default is
+// often not the one the phone is on, and the questions were never heard.
+//
+// Each answer carries only the addresses on the asker's own network. Answering
+// with every adapter's address let a phone try an address it cannot reach (a
+// virtual adapter's) and give up.
+//
+// Answers are also made audible on this computer itself, so harbor.local works
+// in a browser on the PC that runs PrintHarbor (Go switches that off when it
+// joins the group; see loopback).
 func Run(ctx context.Context, name string) error {
 	host := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(name), ".local")) + ".local"
-	conn, err := net.ListenMulticastUDP("udp4", nil, group)
-	if err != nil {
-		return fmt.Errorf("mdns: %w", err)
+	var (
+		mu    sync.Mutex
+		open  = map[int]*net.UDPConn{} // adapter index -> its listener
+		first error
+	)
+	listen := func(ifc *net.Interface) {
+		idx := 0
+		if ifc != nil {
+			idx = ifc.Index
+		}
+		mu.Lock()
+		_, have := open[idx]
+		mu.Unlock()
+		if have {
+			return
+		}
+		conn, err := net.ListenMulticastUDP("udp4", ifc, group)
+		if err != nil {
+			if first == nil {
+				first = err
+			}
+			return
+		}
+		loopback(conn)
+		mu.Lock()
+		open[idx] = conn
+		mu.Unlock()
+		go func() {
+			serve(conn, ifc, host)
+			conn.Close()
+			mu.Lock()
+			delete(open, idx)
+			mu.Unlock()
+		}()
 	}
-	go func() { <-ctx.Done(); conn.Close() }()
+	scan := func() {
+		for _, ifc := range adapters() {
+			ifc := ifc
+			listen(&ifc)
+		}
+	}
+	scan()
+	mu.Lock()
+	n := len(open)
+	mu.Unlock()
+	if n == 0 {
+		listen(nil) // no adapter could be joined by name: let the system choose one
+		mu.Lock()
+		n = len(open)
+		mu.Unlock()
+		if n == 0 {
+			return fmt.Errorf("mdns: %w", first)
+		}
+	}
+	// Adapters come and go (Wi-Fi reconnects, a cable is plugged in): look again
+	// now and then and start listening on new ones.
+	t := time.NewTicker(30 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			mu.Lock()
+			for _, c := range open {
+				c.Close()
+			}
+			mu.Unlock()
+			return nil
+		case <-t.C:
+			scan()
+		}
+	}
+}
+
+// adapters lists the network adapters worth listening on: up, able to do
+// multicast, not loopback, and holding an IPv4 address.
+func adapters() []net.Interface {
+	var out []net.Interface
+	ifs, _ := net.Interfaces()
+	for _, ifc := range ifs {
+		if ifc.Flags&net.FlagUp == 0 || ifc.Flags&net.FlagLoopback != 0 || ifc.Flags&net.FlagMulticast == 0 {
+			continue
+		}
+		if len(ipv4Nets(&ifc)) > 0 {
+			out = append(out, ifc)
+		}
+	}
+	return out
+}
+
+// ipv4Nets is an adapter's IPv4 addresses with their network masks.
+func ipv4Nets(ifc *net.Interface) []*net.IPNet {
+	var out []*net.IPNet
+	addrs, _ := ifc.Addrs()
+	for _, a := range addrs {
+		if ipn, ok := a.(*net.IPNet); ok && ipn.IP.To4() != nil && !ipn.IP.IsLinkLocalUnicast() {
+			out = append(out, &net.IPNet{IP: ipn.IP.To4(), Mask: ipn.Mask})
+		}
+	}
+	return out
+}
+
+// answerFor picks what to tell an asker at src: this computer's addresses on
+// the asker's own network. mine is true when one of them matched. When the
+// asker is on none of our networks (unusual: mDNS relayed by a router), every
+// address is given, as before.
+func answerFor(src net.IP, nets []*net.IPNet, all []net.IP) (ips []net.IP, mine bool) {
+	for _, n := range nets {
+		if n.Contains(src) {
+			ips = append(ips, n.IP)
+		}
+	}
+	if len(ips) > 0 {
+		return ips, true
+	}
+	return all, false
+}
+
+// serve answers the questions heard by one listener until it is closed. Every
+// listener can hear a question that arrived on another adapter, so only the
+// listener for the asker's network answers it (the others stay quiet); a
+// question from outside all our networks is answered by whichever hears it.
+func serve(conn *net.UDPConn, ifc *net.Interface, host string) {
 	buf := make([]byte, 9000)
 	for {
 		n, src, err := conn.ReadFromUDP(buf)
 		if err != nil {
-			if ctx.Err() != nil {
-				return nil
-			}
-			return err
+			return
 		}
 		unicast, ok := Wants(buf[:n], host)
 		if !ok {
 			continue
 		}
-		resp := Answer(host, LocalIPv4())
+		var nets, everyNet []*net.IPNet
+		if ifc != nil {
+			nets = ipv4Nets(ifc)
+		}
+		for _, a := range adapters() {
+			a := a
+			everyNet = append(everyNet, ipv4Nets(&a)...)
+		}
+		ips, mine := answerFor(src.IP, nets, LocalIPv4())
+		if !mine && ifc != nil {
+			if _, other := answerFor(src.IP, everyNet, nil); other {
+				continue // the asker is on another adapter's network: that listener answers
+			}
+		}
+		resp := Answer(host, ips)
 		if len(resp) == 0 {
 			continue
 		}
