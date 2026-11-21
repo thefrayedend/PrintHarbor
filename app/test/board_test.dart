@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:printharbor_app/app_update.dart';
 import 'package:printharbor_app/board.dart';
 import 'package:printharbor_app/board_view.dart';
 
@@ -63,5 +64,12 @@ void main() {
     final js = BoardNav.showScript("li'brary");
     expect(js, contains(r"'li\'brary'"));
     expect(js, contains('show(v)'));
+  });
+
+  test('version comparison', () {
+    expect(isNewerVersion('1.0.10', '1.0.9'), true);
+    expect(isNewerVersion('1.0.4', '1.0.4'), false);
+    expect(isNewerVersion('1.0.3', '1.0.4'), false);
+    expect(isNewerVersion('1.1', '1.0.99'), true);
   });
 }

@@ -33,6 +33,7 @@ async function renderSettings() {
       <div class="card">
         <h3>PrintHarbor</h3>
         <p class="small muted">Version ${esc(info.version)}${info.build_number ? `, build ${esc(info.build_number)}` : ""}, running since ${new Date(info.started_at).toLocaleString()}.</p>
+        <div id="reach-box" class="small"></div>
         <p class="small muted">On Windows it lives in the system tray (the anchor icon by the clock): click it to open this page, right-click for Restart, Start with Windows and Quit.</p>
         ${info.can_restart ? `<button id="restart-btn">Restart PrintHarbor</button>
         <p class="small muted">Restarting also installs an update if one is waiting next to the program.</p>` : `<p class="small muted">Restart the PrintHarbor service to apply changes.</p>`}
@@ -432,6 +433,7 @@ async function renderSettings() {
     } catch (e) { stx.className = "small err"; stx.textContent = e.message; }
     stBtn.disabled = false;
   };
+  drawReach();
   $("#settings-save").onclick = async () => {
     const out = collect();
     try {
@@ -528,5 +530,28 @@ async function editMyProfile(type, mine, done) {
       toast(`Saved "${name}".`);
       if (done) done();
     } catch (e) { toast(e.message, true); }
+  };
+}
+
+// "Phones and other devices": the addresses to type on a phone, and whether
+// Windows Firewall lets them in (the usual reason a phone can't connect). The
+// button adds the firewall rule; Windows asks for permission on the PC first.
+async function drawReach(fresh) {
+  const box = $("#reach-box"); if (!box) return;
+  let r; try { r = await api("/api/reach" + (fresh ? "?fresh=1" : "")); } catch (_) { return; }
+  const port = r.port || location.port, fw = r.firewall || {};
+  const urls = [];
+  if (r.name && r.name !== "-") urls.push(`http://${r.name}.local:${port}`);
+  for (const ip of r.addresses || []) urls.push(`http://${ip}:${port}`);
+  const local = ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
+  const fwLine = fw.state === "blocked" ? `<div style="margin:8px 0;padding:10px 12px;border-radius:10px;background:var(--warn-bg)">${esc(fw.why)} ${local ? `<button class="primary" id="reach-fix" style="margin-left:6px">Allow PrintHarbor</button>` : "Open Settings on the PC that runs PrintHarbor to fix this."}</div>`
+    : fw.state === "allowed" || fw.state === "off" ? `<div class="muted">${esc(fw.why)}</div>` : "";
+  box.innerHTML = `<p style="margin:8px 0 4px"><b>Phones and other devices</b> on your network open PrintHarbor at: ${urls.map((u) => `<code>${esc(u)}</code>`).join(" or ") || "(no network address found)"}</p>${fwLine}`;
+  const fix = $("#reach-fix");
+  if (fix) fix.onclick = async () => {
+    fix.disabled = true; fix.textContent = "Answer the Windows prompt…";
+    try { await api("/api/reach/allow", { method: "POST" }); toast("Windows Firewall now allows PrintHarbor."); }
+    catch (e) { toast(e.message, true); }
+    drawReach(true);
   };
 }

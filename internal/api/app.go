@@ -37,7 +37,7 @@ const Version = "0.4.2"
 // the versions\ folder the exe was saved into, so Settings ("Version 0.4.2,
 // build 56") tells you which backup matches the program that is running.
 // Bump it for every build that is handed over.
-const Build = 78
+const Build = 79
 
 // VersionLabel is the version with its build number, as shown to people.
 func VersionLabel() string { return Version + " (build " + strconv.Itoa(Build) + ")" }

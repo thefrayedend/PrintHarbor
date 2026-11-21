@@ -65,9 +65,12 @@ class AppModel extends ChangeNotifier {
         } else if (RegExp(r'^\d+\.\d+\.\d+\.\d+(:\d+)?$').hasMatch(h)) {
           tries.add(_withPort('http://$h'));
         } else {
-          final ip = await resolveLocal(h);
-          if (ip != null) tries.add('http://$ip:$_defaultPort');
-          tries.add('http://$h:$_defaultPort'); // a router that knows the name
+          // A name, with or without ":port" on the end (harbor.local:7621).
+          final m = RegExp(r'^(.*?)(?::(\d+))?$').firstMatch(h)!;
+          final name = m.group(1)!, port = m.group(2) ?? '$_defaultPort';
+          final ip = await resolveLocal(name);
+          if (ip != null) tries.add('http://$ip:$port');
+          tries.add('http://$name:$port'); // a router that knows the name
         }
       }
       for (final url in tries.toSet()) {

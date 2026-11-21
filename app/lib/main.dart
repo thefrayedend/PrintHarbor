@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'app_model.dart';
+import 'app_update.dart';
 import 'board_view.dart';
 import 'notifications.dart';
 import 'settings_view.dart';
@@ -75,6 +76,13 @@ class _ShellState extends State<Shell> {
     final ok = await app.connect();
     if (!ok && mounted) setState(() => _tab = _hashes.length); // land on Settings to set the address
     Notifier.sync();
+    // Look on GitHub for a newer app and ask before installing it.
+    try {
+      final u = await AppUpdate.check();
+      if (u != null && mounted) await offerUpdate(context, u);
+    } catch (_) {
+      // offline, or GitHub unreachable: Settings has "Check for updates"
+    }
   }
 
   void _select(int i) {

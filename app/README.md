@@ -17,6 +17,9 @@ page can't do on a phone.
 - **Print notifications**: while the app is open and notifications are on, it
   polls `/api/alerts` and raises a local notification when a print finishes, is
   paused (incl. the AI failure detection), fails, or loses contact.
+- **Updates itself**: each time it opens it looks at the `latest-app` release on
+  GitHub and, if that is newer, asks before downloading and installing it.
+  Settings has a **Check for updates** button too.
 - **Settings**: the address, and the notifications switch. Everything else is in
   PrintHarbor's own Settings (the Printers tab).
 
@@ -30,7 +33,8 @@ lib/
   discovery.dart      mDNS (harbor.local) + subnet scan to find the server
   board.dart          the HTTP client: /api/info, /api/printers, /api/alerts
   notifications.dart  the alert watcher → local phone notifications
-  settings_view.dart  address + notifications
+  settings_view.dart  address + notifications + check for updates
+  app_update.dart     looks on GitHub for a newer APK, downloads and installs it
 ```
 
 The server side needs nothing new for this: the app uses `/api/info` (probe +

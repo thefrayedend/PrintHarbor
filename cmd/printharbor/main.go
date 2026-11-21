@@ -167,6 +167,7 @@ func main() {
 	served := make(chan error, 1)
 	go func() { served <- srv.Serve(ln) }()
 	log.Printf("Ready: %s", localURL)
+	go func() { log.Print(api.ReachSummary(port)) }() // reads the firewall: a second or two
 
 	// Also answer on the ordinary web port, so http://harbor.local works
 	// without ":7621" on the end. Best effort: another web server on this

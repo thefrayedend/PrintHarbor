@@ -4,6 +4,7 @@
 import 'package:flutter/material.dart';
 
 import 'app_model.dart';
+import 'app_update.dart';
 import 'notifications.dart';
 
 class SettingsView extends StatefulWidget {
@@ -14,11 +15,42 @@ class SettingsView extends StatefulWidget {
 
 class _SettingsViewState extends State<SettingsView> {
   late final TextEditingController _host = TextEditingController(text: app.host);
+  String _version = '';
+  String _updateNote = '';
+  bool _checking = false;
 
   @override
   void initState() {
     super.initState();
     app.addListener(_changed);
+    AppUpdate.installedVersion().then((v) {
+      if (mounted) setState(() => _version = v);
+    });
+  }
+
+  Future<void> _checkUpdate() async {
+    setState(() {
+      _checking = true;
+      _updateNote = 'Checking…';
+    });
+    String note;
+    try {
+      final u = await AppUpdate.check();
+      if (u == null) {
+        note = 'This is the latest version.';
+      } else {
+        note = 'Version ${u.version} is available.';
+        if (mounted) await offerUpdate(context, u);
+      }
+    } catch (e) {
+      note = 'Could not check for updates: $e';
+    }
+    if (mounted) {
+      setState(() {
+        _checking = false;
+        _updateNote = note;
+      });
+    }
   }
 
   @override
@@ -82,6 +114,43 @@ class _SettingsViewState extends State<SettingsView> {
               'Works while the app is open on the same network. For away-from-home push, also set up the server’s notify plugin with ntfy.'),
         ),
       ),
+      const SizedBox(height: 8),
+      Card(
+        child: ListTile(
+          title: Text(_version.isEmpty ? 'PrintHarbor app' : 'PrintHarbor app $_version'),
+          subtitle: Text(_updateNote.isEmpty ? 'The app looks for a newer version each time it opens.' : _updateNote),
+          trailing: FilledButton.tonal(onPressed: _checking ? null : _checkUpdate, child: const Text('Check for updates')),
+        ),
+      ),
     ]);
   }
+}
+
+/// Asks whether to install a newer version, and does it when the answer is yes.
+Future<void> offerUpdate(BuildContext context, AvailableUpdate u) async {
+  final yes = await showDialog<bool>(
+    context: context,
+    builder: (c) => AlertDialog(
+      title: const Text('Update PrintHarbor?'),
+      content: Text('Version ${u.version} is available (you have ${u.current}). Download and install it now?'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Not now')),
+        FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Install')),
+      ],
+    ),
+  );
+  if (yes != true || !context.mounted) return;
+  final progress = ValueNotifier<double?>(0);
+  showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    builder: (c) => AlertDialog(
+      title: Text('Downloading version ${u.version}…'),
+      content: ValueListenableBuilder<double?>(valueListenable: progress, builder: (_, v, __) => LinearProgressIndicator(value: v)),
+    ),
+  );
+  final note = await AppUpdate.install(u, progress: (f) => progress.value = f);
+  if (!context.mounted) return;
+  Navigator.of(context, rootNavigator: true).pop(); // the download box
+  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(note), duration: const Duration(seconds: 8)));
 }
