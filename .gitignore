@@ -1,0 +1,9 @@
+/printharbor
+/printharbor.exe
+/data/
+/config.json
+*.tmp
+dist/
+/versions/
+/github/
+*.log

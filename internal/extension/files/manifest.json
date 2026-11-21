@@ -1,0 +1,74 @@
+{
+  "manifest_version": 3,
+  "name": "PrintHarbor",
+  "version": "1.0.0",
+  "description": "Files the models you download from Printables, Thingiverse, MakerWorld and Cults3D into your PrintHarbor library (designer\\model folders).",
+  "permissions": [
+    "downloads",
+    "storage",
+    "declarativeNetRequestWithHostAccess"
+  ],
+  "host_permissions": [
+    "https://*.printables.com/*",
+    "https://*.thingiverse.com/*",
+    "https://makerworld.com/*",
+    "https://*.makerworld.com/*",
+    "https://cults3d.com/*",
+    "https://*.cults3d.com/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*",
+    "https://*.bambulab.com/*",
+    "https://*.bblmw.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "scripts": [
+      "background.js"
+    ]
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://makerworld.com/*",
+        "https://*.makerworld.com/*"
+      ],
+      "js": [
+        "page.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "https://*.printables.com/*",
+        "https://*.thingiverse.com/*",
+        "https://makerworld.com/*",
+        "https://*.makerworld.com/*",
+        "https://cults3d.com/*",
+        "https://*.cults3d.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "http://localhost/*",
+        "http://127.0.0.1/*"
+      ],
+      "js": [
+        "bridge.js"
+      ],
+      "run_at": "document_start"
+    }
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "extension@printharbor.local",
+      "strict_min_version": "128.0"
+    }
+  }
+}

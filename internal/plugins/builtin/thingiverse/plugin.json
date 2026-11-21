@@ -1,0 +1,18 @@
+{
+  "id": "thingiverse",
+  "name": "Thingiverse",
+  "kind": "site",
+  "url": "https://www.thingiverse.com",
+  "needs_key": true,
+  "key": "thingiverse_token",
+  "key_help": "Free: sign in at thingiverse.com/developers, create a \"Desktop app\", and copy its App Token into Settings \u2192 Model sites.",
+  "can_download": true,
+  "match": [
+    "thingiverse\\.com/thing:([0-9]+)"
+  ],
+  "entry": "plugin.py",
+  "api": "1",
+  "permissions": [
+    "network"
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "id": "filamentcost",
+  "name": "Filament Cost",
+  "kind": "tool",
+  "version": "1.0.0",
+  "disabled": false,
+  "entry": "plugin.py",
+  "api": "1",
+  "note": "A worked example of a tool (feature) plugin. Estimates filament cost from grams and spool price.",
+  "settings": [
+    {"key": "currency", "label": "Currency symbol", "type": "text", "default": "$", "help": "Shown in front of the total."}
+  ],
+  "params": [
+    {"key": "grams", "label": "Filament used (g)", "type": "number", "default": 25},
+    {"key": "price", "label": "Spool price", "type": "number", "default": 20},
+    {"key": "spool_g", "label": "Spool weight (g)", "type": "number", "default": 1000, "help": "Grams of filament on a full spool."},
+    {"key": "waste", "label": "Add waste %", "type": "number", "default": 5, "help": "Purge, brim, failed first layers…"}
+  ]
+}

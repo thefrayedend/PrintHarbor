@@ -1,0 +1,25 @@
+{
+  "id": "notify",
+  "name": "Notifications",
+  "kind": "tool",
+  "version": "1.0.0",
+  "disabled": true,
+  "entry": "plugin.py",
+  "api": "1",
+  "permissions": ["network"],
+  "events": ["print_started", "print_finished", "print_cancelled", "print_failed", "bed_cleared"],
+  "note": "Sends a message when a print finishes, fails, and so on — to ntfy (which has free phone apps) and/or a Discord/Slack-style webhook. Turn it on, fill in a channel below, and press Run to send a test. The reference event-hook plugin: copy it to notify anywhere (Telegram, Home Assistant, Pushover…).",
+  "settings": [
+    {"key": "ntfy_server", "label": "ntfy server", "type": "text", "default": "https://ntfy.sh", "help": "Leave as ntfy.sh unless you self-host. The ntfy app (iOS/Android) subscribes to your topic."},
+    {"key": "ntfy_topic", "label": "ntfy topic", "type": "text", "default": "", "help": "Any hard-to-guess name, e.g. printharbor-7f3a. Subscribe to it in the ntfy app. Empty = ntfy off."},
+    {"key": "webhook_url", "label": "Webhook URL (Discord/Slack)", "type": "text", "default": "", "help": "A Discord or Slack 'incoming webhook' URL. Empty = off."},
+    {"key": "on_started", "label": "Notify when a print starts", "type": "bool", "default": false},
+    {"key": "on_finished", "label": "Notify when a print finishes", "type": "bool", "default": true},
+    {"key": "on_cancelled", "label": "Notify when a print is stopped before it finishes", "type": "bool", "default": true},
+    {"key": "on_failed", "label": "Notify when a print fails", "type": "bool", "default": true},
+    {"key": "on_bed_cleared", "label": "Notify when the bed is cleared", "type": "bool", "default": false}
+  ],
+  "params": [
+    {"key": "message", "label": "Test message", "type": "text", "default": "PrintHarbor test notification"}
+  ]
+}

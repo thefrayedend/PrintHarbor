@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PrintHarbor</title>
+<link rel="stylesheet" href="style.css">
+<meta name="theme-color" content="#16181c">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%232b7de9'/><path d='M16 5v18M10 10h12M6 18c2 6 6 8.5 10 8.5s8-2.5 10-8.5' fill='none' stroke='white' stroke-width='3' stroke-linecap='round'/></svg>">
+<!-- three.js for the 3D preview of a sliced file (preview3d.js), loaded only when a preview opens -->
+<script type="importmap">{"imports": {"three": "./slicer/vendor/three.module.js"}}</script>
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" id="brand" title="Printer Dashboard">
+    <span class="brand-logo"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 5v18M10 10h12M6 18c2 6 6 8.5 10 8.5s8-2.5 10-8.5" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg></span>
+    <span class="brand-name">PrintHarbor</span>
+  </a>
+  <nav class="printer-tabs" id="pv-tabs" aria-label="Printers"></nav>
+  <nav class="seg-nav" id="main-nav" aria-label="Pages">
+    <button data-view="library" title="Library: your models, in your folders, and the model sites"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M4 4h4v16H4zm5 0h4v16H9zm5.2.6 3.9-1 4 15.4-3.9 1z"/></svg><span>Library</span></button>
+    <button data-view="projects" title="Projects: plates, painting and settings; send plates to printers"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 2 3 7v10l9 5 9-5V7l-9-5zm0 2.3L18.6 8 12 11.7 5.4 8 12 4.3zM5 9.7l6 3.4v6.6l-6-3.4V9.7zm8 10v-6.6l6-3.4v6.6l-6 3.4z"/></svg><span>Projects</span></button>
+    <button data-view="printers" title="Your printers: all your printers with cameras; click one for its dashboard"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M17 10.5V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3.5l4 4v-11l-4 4z"/></svg><span>Printers</span></button>
+    <button data-view="queue" title="Queue: what is slicing, sending or printing right now"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M3 5h18v2H3zm0 6h18v2H3zm0 6h12v2H3z"/></svg><span>Queue</span> <span id="queue-count" class="pill hidden"></span></button>
+    <button data-view="filament" title="Filament: your Spoolman spools, colours and how much is left"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 4a6 6 0 1 1 0 12 6 6 0 0 1 0-12zm0 3a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"/></svg><span>Filament</span></button>
+  </nav>
+  <button class="icon-btn hidden" id="top-pin" title="Keep this bar shown on full-screen pages" aria-label="Keep the bar shown"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M16 3v2l-1 1v5l3 3v2h-5v5l-1 1-1-1v-5H6v-2l3-3V6L8 5V3z"/></svg></button>
+  <button class="icon-btn" data-view="settings" id="btn-settings" title="Settings" aria-label="Settings"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M19.4 13a7.5 7.5 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3h-4l-.4 2.7a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.5 7.5 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.4 7.4 0 0 0 1.7 1L11 21h4l.4-2.7a7.4 7.4 0 0 0 1.7-1l2.5 1 2-3.5L19.4 13zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg></button>
+</header>
+
+<div id="top-handle" class="top-handle" title="Show the PrintHarbor bar"><span>PrintHarbor ▾</span></div>
+<div id="banner" class="banner hidden"></div>
+
+<main>
+  <!-- PROJECTS -->
+  <section id="view-projects">
+    <div id="project-list-wrap">
+      <label class="dropzone" id="dropzone">
+        <input type="file" id="upload" accept=".3mf,.stl,.obj" multiple hidden>
+        <strong>Open a 3MF project, or STL / OBJ files</strong>
+        <span>Drop them here or click to choose. Your original files are never changed.</span>
+      </label>
+      <div class="row" style="justify-content:center;margin-top:10px"><button id="new-project" style="flex:0 0 auto">Start an empty project</button></div>
+      <div id="project-list" class="list"></div>
+    </div>
+    <div id="project-detail" class="hidden"></div>
+  </section>
+
+  <!-- LIBRARY -->
+  <section id="view-library" class="hidden"></section>
+
+  <!-- SLICER (web/slicer: FlashBridge's Prepare / Paint / Preview, sliced by OrcaSlicer here) -->
+  <section id="view-slicer" class="hidden"><iframe id="slicer-frame" title="Slicer" allow="clipboard-read; clipboard-write; fullscreen"></iframe></section>
+
+  <!-- 3D JAMES (web/3djames.html): CAD, saving into the library -->
+  <section id="view-design" class="hidden"><iframe id="design-frame" title="3D James" allow="clipboard-read; clipboard-write; fullscreen"></iframe></section>
+
+  <!-- PRINTERS -->
+  <section id="view-printers" class="hidden">
+    <div class="toolbar">
+      <h2>Your printers</h2>
+      <div class="row" style="flex:0 0 auto"><button id="cam-wall">Camera wall</button><button class="primary" id="add-printer">Add printer</button></div>
+    </div>
+    <div id="printer-grid" class="grid"></div>
+    <div id="alert-list" style="margin-top:18px"></div>
+  </section>
+
+  <!-- PRINTER CONTROL (printer.js): same layout as the FlashBridge printer screen -->
+  <section id="view-printer" class="hidden">
+    <p class="muted" id="pv-none">No printers yet.</p>
+    <div id="pv-err" class="pv-banner err hidden"><span id="pv-err-text"></span></div>
+    <div id="pv-ai-banner" class="pv-banner err hidden"><span id="pv-ai-banner-text"></span><button class="btn small" id="pv-ai-ignore">Not a failure</button></div>
+
+    <div id="pv-view" class="printer-view hidden">
+      <div class="col-main">
+        <div class="camera" id="pv-camera">
+          <img id="pv-cam-img" class="hidden" alt="Printer camera">
+          <div class="cam-empty" id="pv-cam-empty">
+            <svg viewBox="0 0 24 24" width="40" height="40"><path fill="currentColor" d="M17 10.5V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3.5l4 4v-11l-4 4z"/></svg>
+            <span id="pv-cam-empty-text">No camera</span>
+            <span class="small" id="pv-cam-hint">Add a snapshot address in the printer's settings to see it here.</span>
+            <button class="btn small hidden" id="pv-cam-retry">Try again</button>
+          </div>
+          <div class="cam-top">
+            <span class="chip" id="pv-state-chip">–</span>
+            <span class="chip ai" id="pv-ai-chip" title="AI failure detection"></span>
+          </div>
+          <div class="cam-bottom">
+            
+            <button class="cam-btn" id="pv-fullscreen" title="Full screen" aria-label="Full screen">
+              <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="card job" id="pv-job">
+          <img class="job-thumb" id="pv-job-thumb" alt="">
+          <div class="job-body">
+            <div class="job-title" id="pv-job-title">Ready</div>
+            <div class="job-sub" id="pv-job-sub"></div>
+            <div class="progress" id="pv-job-progress"><div id="pv-job-bar"></div></div>
+            <div class="job-stats" id="pv-job-stats"></div>
+          </div>
+          <div class="job-actions" id="pv-job-actions"></div>
+        </div>
+
+      </div>
+
+      <div class="col-side">
+        <div class="card">
+          <div class="card-head"><h2>Filament</h2><span class="muted small" id="pv-slots-hint"></span></div>
+          <div class="slots" id="pv-slots"></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h2>Temperatures</h2><span class="muted small" id="pv-temps-hint">tap to set</span></div>
+          <div class="temps" id="pv-temps"></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h2>Controls</h2></div>
+          <div class="ctl-rows" id="pv-controls"></div>
+        </div>
+        <div class="card" id="pv-move-card">
+          <div class="card-head"><h2>Move</h2><span class="muted small" id="pv-move-hint"></span></div>
+          <div class="pos" id="pv-pos"></div>
+          <div class="ctl"><span class="ctl-name">Step</span>
+            <div class="segmented" id="pv-step"><button data-v="0.1">0.1</button><button data-v="1">1</button><button data-v="10">10</button><button data-v="50">50 mm</button></div></div>
+          <div class="jog">
+            <div class="jog-xy">
+              <span></span><button data-jog="y" data-dir="1" aria-label="Y plus">Y+</button><span></span>
+              <button data-jog="x" data-dir="-1" aria-label="X minus">X−</button><button data-home="xy" title="Home X and Y" aria-label="Home X and Y">⌂</button><button data-jog="x" data-dir="1" aria-label="X plus">X+</button>
+              <span></span><button data-jog="y" data-dir="-1" aria-label="Y minus">Y−</button><span></span>
+            </div>
+            <div class="jog-z">
+              <button data-jog="z" data-dir="1" aria-label="Z up">Z+</button>
+              <button data-home="z" title="Home Z" aria-label="Home Z">⌂</button>
+              <button data-jog="z" data-dir="-1" aria-label="Z down">Z−</button>
+            </div>
+          </div>
+          <div class="row gap wrap">
+            <button class="btn small" data-home="">Home all</button>
+            <button class="btn small" data-motors>Motors off</button>
+          </div>
+        </div>
+      </div>
+      <div class="col-extra">
+        <div class="card" id="pv-chart-card">
+          <div class="card-head"><h2>Temperature history</h2>
+            <span class="legend small"><span><i class="s1"></i>Nozzle</span><span><i class="s2"></i>Bed</span><span class="muted">dashed = target</span></span></div>
+          <div class="chart-wrap"><canvas id="pv-chart"></canvas><div class="chart-tip hidden" id="pv-chart-tip"></div></div>
+        </div>
+
+        <div class="card" id="pv-console-card">
+          <div class="card-head"><h2>Console</h2><span class="muted small">send G-code to the printer</span></div>
+          <div class="logs" id="pv-console-log"></div>
+          <form class="console-form" id="pv-console-form">
+            <input id="pv-console-input" placeholder="e.g. G28 or M115" autocomplete="off" spellcheck="false">
+            <button class="btn primary" type="submit">Send</button>
+          </form>
+          <div class="presets" id="pv-console-quick">
+            <button type="button" class="btn tiny" data-g="M115">Firmware info</button>
+            <button type="button" class="btn tiny" data-g="M114">Position</button>
+            <button type="button" class="btn tiny" data-g="M105">Temperatures</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SETTINGS -->
+  <section id="view-settings" class="hidden"></section>
+
+  <section id="view-filament" class="hidden"></section>
+
+  <!-- QUEUE -->
+  <section id="view-queue" class="hidden">
+    <div class="toolbar"><h2>Queue</h2><span class="muted" id="queue-info"></span><button type="button" id="queue-history" style="margin-left:auto">Completed prints</button></div>
+    <div id="job-list" class="list"></div>
+  </section>
+</main>
+
+<dialog id="dlg"><form method="dialog" id="dlg-body"></form></dialog>
+
+<dialog id="pv-temp-dialog" class="pv-dlg small-dialog">
+  <form method="dialog" id="pv-temp-form" class="stack">
+    <h2 id="pv-td-title">Set temperature</h2>
+    <div class="temp-input"><input id="pv-td-value" type="number" min="0" max="320" inputmode="numeric"><span>°C</span></div>
+    <div class="presets" id="pv-td-presets"></div>
+    <div class="row gap end">
+      <button class="btn" type="button" data-close>Cancel</button>
+      <button class="btn primary" type="submit">Set</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="pv-slot-dialog" class="pv-dlg small-dialog">
+  <form method="dialog" id="pv-slot-form" class="stack">
+    <h2 id="pv-sd-title">Slot</h2>
+    <label class="field"><span class="label">Material</span><select id="pv-sd-material"></select></label>
+    <div class="label">Colour</div>
+    <div class="palette" id="pv-sd-palette"></div>
+    <label class="row gap" id="pv-sd-other"><span class="muted small">Other colour</span><input type="color" id="pv-sd-color"></label>
+    <div class="row gap end">
+      <button class="btn" type="button" data-close>Cancel</button>
+      <button class="btn primary" type="submit">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="pv-files-dialog" class="pv-dlg sheet">
+  <div class="sheet-head">
+    <h2>Print a file</h2>
+    <button class="icon-btn" data-close aria-label="Close">✕</button>
+  </div>
+  <label class="drop" id="pv-drop">
+    <input type="file" id="pv-file-input" accept=".gcode,.3mf,.g,.gco,.bgcode" hidden>
+    <b>Upload a sliced file</b>
+    <span class="muted small">.gcode or .gcode.3mf — click or drop it here</span>
+    <div class="progress hidden" id="pv-upload-progress"><div id="pv-upload-bar"></div></div>
+  </label>
+  <label class="check"><input type="checkbox" id="pv-upload-start" checked> Start printing when it's uploaded</label>
+  <div class="file-list" id="pv-file-list"></div>
+</dialog>
+
+<dialog id="pv-confirm" class="pv-dlg small-dialog">
+  <form method="dialog" class="stack">
+    <h2 id="pv-cf-title"></h2>
+    <p class="muted" id="pv-cf-text" style="margin:0"></p>
+    <div class="row gap end">
+      <button class="btn" value="cancel">Cancel</button>
+      <button class="btn primary" value="ok" id="pv-cf-ok">OK</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="viewer.js"></script>
+<script src="app.js"></script>
+<script src="projects.js"></script>
+<script src="send.js"></script>
+<script src="printer-list.js"></script>
+<script src="queue.js"></script>
+<script src="frames.js"></script>
+<script src="library.js"></script>
+<script src="sites.js"></script>
+<script src="settings.js"></script>
+<script src="filament.js"></script>
+<script src="gcode.js"></script>
+<script src="assistant.js"></script>
+<script src="printer.js"></script>
+<script src="ai.js"></script>
+</body>
+</html>

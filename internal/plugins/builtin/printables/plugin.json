@@ -1,0 +1,16 @@
+{
+  "id": "printables",
+  "name": "Printables",
+  "kind": "site",
+  "url": "https://www.printables.com",
+  "needs_key": false,
+  "can_download": true,
+  "match": [
+    "printables\\.com/model/([0-9]+)"
+  ],
+  "entry": "plugin.py",
+  "api": "1",
+  "permissions": [
+    "network"
+  ]
+}

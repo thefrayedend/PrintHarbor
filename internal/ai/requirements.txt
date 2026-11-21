@@ -1,0 +1,4 @@
+# AI service dependencies (PrintHarbor installs these into its own venv).
+onnxruntime>=1.18,<2
+numpy>=1.24,<3
+pillow>=10,<13

@@ -1,0 +1,30 @@
+name: printharbor_app
+description: PrintHarbor companion app — your workshop in your pocket.
+publish_to: "none"
+# The build script sets the real version from the CI run number.
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # The app is a native shell around PrintHarbor's own web UI.
+  flutter_inappwebview: ^6.1.5
+  # Talking to the server's API (discovery probe, status, alerts).
+  http: ^1.2.2
+  # Remembering the board address and settings.
+  shared_preferences: ^2.3.2
+  # Local phone notifications when a print finishes / fails / etc.
+  flutter_local_notifications: ^18.0.1
+  # Finding PrintHarbor on the Wi-Fi by its harbor.local name (mDNS).
+  multicast_dns: ^0.3.2+6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true

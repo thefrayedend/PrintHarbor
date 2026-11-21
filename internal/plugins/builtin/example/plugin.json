@@ -1,0 +1,18 @@
+{
+  "id": "example",
+  "name": "Example Site",
+  "kind": "site",
+  "url": "https://example.com",
+  "needs_key": false,
+  "can_download": true,
+  "disabled": true,
+  "match": [
+    "example\\.com/model/([0-9]+)"
+  ],
+  "entry": "plugin.py",
+  "api": "1",
+  "note": "A demo/template plugin. Off by default (it won't show in the Library). Copy this folder, change the id, and clear \"disabled\" to build your own.",
+  "permissions": [
+    "network"
+  ]
+}

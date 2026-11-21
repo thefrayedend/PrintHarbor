@@ -1,0 +1,19 @@
+{
+  "id": "cults",
+  "name": "Cults3D",
+  "kind": "site",
+  "url": "https://cults3d.com",
+  "needs_key": true,
+  "key": "cults_key",
+  "key_help": "Sign in at cults3d.com, create an API key at cults3d.com/en/api/keys, and enter your Cults nickname and the key in Settings \u2192 Model sites.",
+  "can_download": false,
+  "note": "Cults3D doesn't hand files to apps: open the model in PrintHarbor's browser and click Download there, and it's filed in your library automatically.",
+  "match": [
+    "cults3d\\.com/[^?#]+/([a-z0-9][a-z0-9-]*)"
+  ],
+  "entry": "plugin.py",
+  "api": "1",
+  "permissions": [
+    "network"
+  ]
+}

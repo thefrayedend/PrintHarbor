@@ -1,0 +1,16 @@
+{
+  "id": "example-printer",
+  "name": "Virtual Printer (demo)",
+  "kind": "printer",
+  "disabled": true,
+  "entry": "plugin.py",
+  "api": "1",
+  "output": "gcode",
+  "driver": {
+    "address_hint": "(not used by the demo)",
+    "needs_key": false,
+    "needs_serial": false,
+    "help": "A demonstration printer plugin: it accepts a print and shows fake progress, so you can see a printer plugin end to end without hardware. Copy this folder to write a real one (see docs/plugins/printers.md)."
+  },
+  "note": "A demo/template printer plugin, off by default. Copy it and make status()/upload() talk to a real printer."
+}

@@ -1,0 +1,19 @@
+{
+  "id": "makerworld",
+  "name": "MakerWorld",
+  "kind": "site",
+  "url": "https://makerworld.com",
+  "needs_key": true,
+  "key": "makerworld_token",
+  "key_help": "Sign in at makerworld.com, open the browser's developer tools \u2192 Application/Storage \u2192 Cookies \u2192 makerworld.com, and copy the value of the \"token\" cookie into Settings \u2192 Model sites.",
+  "can_download": true,
+  "note": "MakerWorld sometimes asks for a robot check; if it does, open the model on makerworld.com once and try again.",
+  "match": [
+    "makerworld\\.com/[^?#]*models/([0-9]+)"
+  ],
+  "entry": "plugin.py",
+  "api": "1",
+  "permissions": [
+    "network"
+  ]
+}
