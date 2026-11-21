@@ -1,8 +1,12 @@
 # Builds the PrintHarbor Android app; the steps are in app/ci/build-apk.sh.
-# Actions -> "Build Android app" -> Run workflow. The APK: Releases -> latest-app.
+# Runs when the app's source changes, or: Actions -> "Build Android app" -> Run workflow.
+# The APK: Releases -> latest-app.
 name: Build Android app
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["app/**", ".github/workflows/build-app.yml"]
 permissions:
   contents: write
 jobs:
@@ -18,7 +22,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: 3.50.1
+          flutter-version: 3.29.3
           cache: true
       - run: bash app/ci/build-apk.sh
         env:
