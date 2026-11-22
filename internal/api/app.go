@@ -37,7 +37,7 @@ const Version = "0.4.2"
 // the versions\ folder the exe was saved into, so Settings ("Version 0.4.2,
 // build 56") tells you which backup matches the program that is running.
 // Bump it for every build that is handed over (see docs/CODE-LAYOUT.md).
-const Build = 81
+const Build = 82
 
 // VersionLabel is the version with its build number, as shown to people.
 func VersionLabel() string { return Version + " (build " + strconv.Itoa(Build) + ")" }
@@ -199,6 +199,7 @@ func (a *App) Run(ctx context.Context) {
 	go a.housekeeping(ctx)
 	go a.profLoop(ctx)
 	go a.updLoop(ctx)
+	go a.libBackupLoop(ctx)
 	a.Printers.Run(ctx, time.Duration(a.cfg().PollSeconds)*time.Second)
 	a.Plugins.Stop()
 }

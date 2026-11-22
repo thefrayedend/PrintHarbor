@@ -58,6 +58,19 @@ async function renderSettings() {
         ${field("backup_keep_days", "Keep backups for (days)", "0 turns backups off. The newest three are always kept.", "number")}
         <div class="row" style="justify-content:flex-start;gap:10px"><button type="button" id="bk-now">Back up now</button><span class="small muted" id="bk-info"></span></div>
       </div>
+      <div class="card" id="lib-backup">
+        <h3>Model library backup</h3>
+        <p class="small muted">One zip with every model in your library and everything PrintHarbor knows about them: files, photos, the details from the site they came from, and your titles, tags, notes, favourites and print counts. Making a new one replaces the old one, so there is always exactly one file to copy somewhere safe. Another PrintHarbor (a new PC, a mini PC) puts it all back with <b>Restore</b>.</p>
+        <label class="field"><span>Folder for the zip</span><input id="lb-dir" placeholder=""><small class="muted">Leave empty for the backup folder. A network share works, like <code>\\\\nas\\backups</code>.</small></label>
+        <label class="field"><span>Make it</span><select id="lb-hours" style="width:auto">
+          <option value="0">Only when I press the button</option><option value="6">Every 6 hours, if anything changed</option><option value="24">Once a day, if anything changed</option><option value="168">Once a week, if anything changed</option></select></label>
+        <div class="row" style="justify-content:flex-start;gap:10px;flex-wrap:wrap"><button type="button" id="lb-save">Save</button><button type="button" class="primary" id="lb-now">Back up library now</button><a id="lb-dl" class="hidden" href="/api/library/backup/download" download>Download the zip</a></div>
+        <p class="small" id="lb-info"></p>
+        <div class="settings-group">Restore</div>
+        <p class="small muted">Pick a printharbor-library.zip. Models go into this PrintHarbor's models folder; nothing already there is overwritten (a different file with the same name is kept, and the backup's copy goes beside it as "(restored)").</p>
+        <div class="row" style="justify-content:flex-start;gap:10px;flex-wrap:wrap"><input type="file" id="lb-file" accept=".zip" style="max-width:320px"><button type="button" id="lb-restore" disabled>Restore</button></div>
+        <p class="small" id="lb-rinfo"></p>
+      </div>
       <div class="card">
         <h3>Network</h3>
         ${field("mdns_name", "Name on your network", `Open PrintHarbor at http://&lt;name&gt;.local:${location.port || 80}. Use "-" to turn this off.`, "text", "harbor")}
@@ -257,6 +270,52 @@ async function renderSettings() {
     $("#bk-now").disabled = false; drawBackups();
   };
   drawBackups();
+
+  // ---- Model library backup
+  const gb = (n) => n >= 1e9 ? (n / 1e9).toFixed(2) + " GB" : (n / 1e6).toFixed(1) + " MB";
+  async function drawLibBackup() {
+    let b; try { b = await api("/api/library/backup"); } catch (_) { return; }
+    $("#lb-dir").value = b.dir || ""; $("#lb-dir").placeholder = b.default_dir;
+    const sel = $("#lb-hours"); sel.value = String(b.hours || 0);
+    if (sel.value !== String(b.hours || 0)) { sel.insertAdjacentHTML("beforeend", `<option value="${b.hours}">Every ${b.hours} hours, if anything changed</option>`); sel.value = String(b.hours); }
+    const st = b.state || {};
+    $("#lb-dl").classList.toggle("hidden", !b.exists);
+    $("#lb-info").innerHTML = st.running ? "Making the backup…"
+      : (b.exists && st.made ? `Last made ${new Date(st.made).toLocaleString()}: ${st.models} models, ${st.files} files, ${gb(st.bytes)}, in <code>${esc(b.path)}</code>` : `None yet. It will be <code>${esc(b.path)}</code>`)
+      + (st.error ? ` <span class="err">${esc(st.error)}</span>` : "");
+  }
+  $("#lb-save").onclick = async () => {
+    try { await api("/api/library/backup/settings", { json: { dir: $("#lb-dir").value, hours: +$("#lb-hours").value } }); toast("Saved."); } catch (e) { toast(e.message, true); }
+    drawLibBackup();
+  };
+  $("#lb-now").onclick = async () => {
+    const btn = $("#lb-now"); btn.disabled = true; $("#lb-info").textContent = "Making the backup… (a big library takes a few minutes)";
+    try {
+      await api("/api/library/backup/settings", { json: { dir: $("#lb-dir").value, hours: +$("#lb-hours").value } });
+      const st = await api("/api/library/backup", { method: "POST" }); toast(`Library backed up: ${st.models} models, ${gb(st.bytes)}.`);
+    } catch (e) { toast(e.message, true); }
+    btn.disabled = false; drawLibBackup();
+  };
+  $("#lb-file").onchange = () => { $("#lb-restore").disabled = !$("#lb-file").files.length; };
+  $("#lb-restore").onclick = () => {
+    const f = $("#lb-file").files[0]; if (!f) return;
+    const btn = $("#lb-restore"), info = $("#lb-rinfo"); btn.disabled = true;
+    const x = new XMLHttpRequest();
+    x.open("POST", "/api/library/restore");
+    x.upload.onprogress = (e) => { if (e.lengthComputable) info.textContent = e.loaded < e.total ? `Sending ${Math.round(100 * e.loaded / e.total)}%…` : "Putting the models back…"; };
+    x.onload = () => {
+      btn.disabled = false;
+      let r = {}; try { r = JSON.parse(x.responseText); } catch (_) {}
+      if (x.status !== 200) { info.innerHTML = `<span class="err">${esc(r.error || x.statusText)}</span>`; return; }
+      const errs = r.errors || [];
+      info.innerHTML = `Restored ${r.models + r.uploaded} models: ${r.written} files put back${r.same ? `, ${r.same} were already here` : ""}${r.renamed ? `, ${r.renamed} kept beside a different file as "(restored)"` : ""}.`
+        + (errs.length ? `<br><span class="err">${errs.length} problem(s): ${errs.slice(0, 5).map(esc).join("; ")}</span>` : "");
+      toast("Library restored.");
+    };
+    x.onerror = () => { btn.disabled = false; info.innerHTML = `<span class="err">The upload stopped.</span>`; };
+    info.textContent = "Sending…"; x.send(f);
+  };
+  drawLibBackup();
 
   const rb = $("#restart-btn");
   if (rb) rb.onclick = () => restartServer();

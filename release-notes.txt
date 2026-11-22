@@ -1,5 +1,2 @@
-Build 81
-- Printer, quality and filament profiles are downloaded and kept up to date (Settings > Printing > Profile updates): go back to a profile's earlier settings, or lock one so updates leave it alone.
-- PrintHarbor can update itself (Settings > General > Updates).
-- The Docker image works with OrcaSlicer 2.5.
-- Fixed: on Linux, restarting after an update started the old program again.
+Build 82
+- Model library backup (Settings > General > Model library backup): one zip with every model and everything PrintHarbor knows about them (site details, your titles, tags, notes, favourites, print counts, added photos). A new one replaces the old one. Made when you press the button, or on a timer you choose. Another PrintHarbor restores it with Restore.

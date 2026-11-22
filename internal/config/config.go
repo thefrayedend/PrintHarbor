@@ -56,6 +56,13 @@ type Config struct {
 	// backups off.
 	BackupDir      string `json:"backup_dir"`
 	BackupKeepDays int    `json:"backup_keep_days"`
+	// The model library backup: one zip of every model and everything known
+	// about it (see internal/api/libbackup.go). LibraryBackupDir: where the
+	// zip goes (empty: the backup folder; a network share works).
+	// LibraryBackupHours: make it again every this many hours when the
+	// library has changed; 0 (the default) only when you press the button.
+	LibraryBackupDir   string `json:"library_backup_dir,omitempty"`
+	LibraryBackupHours int    `json:"library_backup_hours,omitempty"`
 	// PrintDefaults: your own values for quality settings, used in place of
 	// what the stock Orca profiles say (support type, walls, infill, …). A
 	// setting you change for one job, or one your own preset sets, still wins.

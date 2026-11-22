@@ -219,21 +219,21 @@ func TestRefileOnEdit(t *testing.T) {
 		t.Fatalf("%v %+v", ok, moved)
 	}
 	// Your own folder (not imported): the details are written into it, the folder keeps its name.
-	mine := filepath.Join(cfg.ModelDir, "Titan3D", "Turkey")
+	mine := filepath.Join(cfg.ModelDir, "Gadget Works", "Gnome")
 	os.MkdirAll(filepath.Join(mine, "Legs"), 0o755)
 	os.WriteFile(filepath.Join(mine, "Legs", "leg.stl"), []byte("solid"), 0o644)
 	a.Library.Rescan()
-	got, _ := a.Library.Search(library.Query{Text: "turkey"})
-	if len(got) != 1 || got[0].Designer != "Titan3D" || got[0].Files[0].Name != "Legs/leg.stl" {
-		t.Fatalf("turkey: %+v", got)
+	got, _ := a.Library.Search(library.Query{Text: "gnome"})
+	if len(got) != 1 || got[0].Designer != "Gadget Works" || got[0].Files[0].Name != "Legs/leg.stl" {
+		t.Fatalf("gnome: %+v", got)
 	}
-	nt := "Thanksgiving Turkey"
+	nt := "Garden Gnome Deluxe"
 	it, _ = a.Library.Update(got[0].ID, library.Meta{Title: &nt})
 	if _, ok := a.refileImported(it); ok {
 		t.Fatal("own folder must not be renamed")
 	}
 	b, err := os.ReadFile(filepath.Join(mine, "printharbor.json"))
-	if err != nil || !strings.Contains(string(b), "Thanksgiving Turkey") || !strings.Contains(string(b), "Titan3D") {
+	if err != nil || !strings.Contains(string(b), "Garden Gnome Deluxe") || !strings.Contains(string(b), "Gadget Works") {
 		t.Fatalf("details not saved with the files: %s %v", b, err)
 	}
 }
