@@ -1,0 +1,65 @@
+name: build
+
+# Tests the code, publishes the programs as the release "latest" (running
+# copies of PrintHarbor update themselves from it) and builds the Docker image,
+# which has to slice a real model before it is pushed.
+
+# Started by import-source.yml after new source arrives, or by hand.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: build
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+      - run: go vet ./...
+      - run: go test ./...
+      - run: bash scripts/build-release.sh
+      - name: Publish as the release "latest"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          build=$(cat out/.build)
+          gh release view latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create latest --repo "$GITHUB_REPOSITORY" --title "PrintHarbor" --notes "The newest build. PrintHarbor updates itself from here."
+          # the programs first, the description last: a copy that looks in between sees the old build
+          gh release upload latest out/printharbor-* --clobber --repo "$GITHUB_REPOSITORY"
+          gh release upload latest out/printharbor.json --clobber --repo "$GITHUB_REPOSITORY"
+          gh release edit latest --repo "$GITHUB_REPOSITORY" --title "PrintHarbor build $build" \
+            --notes "$(printf 'The newest build (%s). Running copies of PrintHarbor update themselves from here.\n\n%s' "$build" "$(cat release-notes.txt 2>/dev/null)")"
+
+  docker:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the image
+        run: docker build -t printharbor:test .
+      - name: Start it and slice a real model
+        run: |
+          docker run -d --name ph -p 7621:7621 printharbor:test
+          bash scripts/smoke-test.sh http://127.0.0.1:7621
+      - name: What the container said
+        if: always()
+        run: docker logs ph 2>&1 | tail -80 || true
+      - name: Push to ghcr.io
+        run: |
+          build=$(sed -n 's/^const Build = \([0-9]*\).*/\1/p' internal/api/app.go)
+          img=ghcr.io/${GITHUB_REPOSITORY,,}
+          echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker tag printharbor:test "$img:latest"
+          docker tag printharbor:test "$img:build-$build"
+          docker push "$img:latest"
+          docker push "$img:build-$build"

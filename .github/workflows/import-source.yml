@@ -1,7 +1,9 @@
 # Unpacks an uploaded source bundle (ph-src.zip) into the repository, fetches
 # the third-party JavaScript libraries from npm (checked against the SHA-256
-# sums in the bundle), then starts the Android app build. Runs when a bundle is
-# uploaded to the repo's top folder.
+# sums in the bundle), then starts the builds: the programs and the Docker image
+# (build.yml), the profile pack (profiles.yml) and, when app/ changed, the
+# Android app (build-app.yml). Runs when a bundle is uploaded to the repo's top
+# folder.
 name: Import source
 on:
   push:
@@ -17,6 +19,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Unpack
+        id: unpack
         run: |
           set -euo pipefail
           [ -f ph-src.zip ] || { echo "no bundle to import"; exit 0; }
@@ -39,7 +42,12 @@ jobs:
           git add -A
           git commit -q -m "Import PrintHarbor source"
           git push
-      - name: Start the Android app build
-        run: gh workflow run build-app.yml --ref main
+          echo "imported=1" >> "$GITHUB_OUTPUT"
+      - name: Start the builds
+        if: steps.unpack.outputs.imported == '1'
+        run: |
+          gh workflow run build.yml --ref main
+          gh workflow run profiles.yml --ref main
+          if git diff --name-only HEAD~1 HEAD | grep -q '^app/'; then gh workflow run build-app.yml --ref main; else echo "app/ did not change: no new Android app"; fi
         env:
           GH_TOKEN: ${{ github.token }}

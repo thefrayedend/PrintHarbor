@@ -1,0 +1,43 @@
+name: profiles
+
+# Every day: take OrcaSlicer's current printer, quality and filament profiles
+# and publish them as a "profile pack" (release "orca-profiles"). Running
+# copies of PrintHarbor download the pack when it changes.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 5 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: profiles
+  cancel-in-progress: false
+
+jobs:
+  pack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Get OrcaSlicer's profiles
+        run: |
+          git clone --depth 1 --filter=blob:none --sparse https://github.com/OrcaSlicer/OrcaSlicer.git orca
+          git -C orca sparse-checkout set resources/profiles
+          echo "REF=main @ $(git -C orca rev-parse --short HEAD)" >> "$GITHUB_ENV"
+      - name: Build the pack
+        run: bash scripts/build-profile-pack.sh orca/resources/profiles pack newest "$REF"
+      - name: Publish it if the profiles changed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          new=$(jq -r .id pack/orca-profiles-newest.json)
+          old=$(curl -fsSL "https://github.com/$GITHUB_REPOSITORY/releases/download/orca-profiles/orca-profiles-newest.json" | jq -r .id || true)
+          if [ "$new" = "$old" ]; then echo "No change ($new)."; exit 0; fi
+          gh release view orca-profiles --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create orca-profiles --repo "$GITHUB_REPOSITORY" --latest=false --title "OrcaSlicer profiles" \
+              --notes "OrcaSlicer's printer, quality and filament profiles (from the OrcaSlicer project, AGPL-3.0), packed daily for PrintHarbor."
+          gh release upload orca-profiles pack/orca-profiles-newest.zip --clobber --repo "$GITHUB_REPOSITORY"
+          gh release upload orca-profiles pack/orca-profiles-newest.json --clobber --repo "$GITHUB_REPOSITORY"
+          echo "Published $new ($REF)."
