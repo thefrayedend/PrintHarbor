@@ -279,8 +279,10 @@ func findConfig(flagValue string) string {
 	return abs("config.json")
 }
 
-// selfPath is this program's own file.
-func selfPath() (string, error) {
+// selfPath is this program's own file. It is worked out once, at start: after
+// an update renames the running file, Linux would report the renamed one
+// (.old) and a restart would start the old program again.
+var selfExe, selfExeErr = func() (string, error) {
 	exe, err := os.Executable()
 	if err != nil {
 		return "", err
@@ -289,7 +291,9 @@ func selfPath() (string, error) {
 		exe = exe2
 	}
 	return exe, nil
-}
+}()
+
+func selfPath() (string, error) { return selfExe, selfExeErr }
 
 // swapIn puts a waiting <name>.new.exe in the place of <name>.exe: the current
 // file is renamed to <name>.exe.old (Windows lets a running program be renamed,

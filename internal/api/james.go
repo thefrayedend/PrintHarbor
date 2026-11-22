@@ -349,7 +349,7 @@ var jamesPage struct {
 // that file. The page is sent compressed and with a fingerprint, so the
 // browser only downloads it again when it has actually changed.
 func (a *App) serve3DJames(web fs.FS) http.HandlerFunc {
-	go keep3DJames(web, filepath.Join(a.Store.Dir(), "3djames.html"))
+	keep3DJames(web, filepath.Join(a.Store.Dir(), "3djames.html"))
 	return func(w http.ResponseWriter, r *http.Request) {
 		var src []byte
 		var key string

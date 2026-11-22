@@ -1,4 +1,5 @@
-Build 80
+Build 81
 - Printer, quality and filament profiles are downloaded and kept up to date (Settings > Printing > Profile updates): go back to a profile's earlier settings, or lock one so updates leave it alone.
 - PrintHarbor can update itself (Settings > General > Updates).
 - The Docker image works with OrcaSlicer 2.5.
+- Fixed: on Linux, restarting after an update started the old program again.

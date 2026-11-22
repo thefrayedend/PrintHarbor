@@ -55,7 +55,7 @@ func TestGuardCrossSite(t *testing.T) {
 		{"DNS rebinding v6", "GET", "/api/settings", "evil.example:7621", "[::1]:5000", nil, 403},
 		{"remote name from another device", "GET", "/api/settings", "pc.tailnet.ts.net:7621", "100.70.1.2:5000", nil, 204},
 		{"127.0.0.1", "GET", "/", "127.0.0.1:7621", "127.0.0.1:5000", nil, 204},
-		{"pc name", "GET", "/", "desktop-jl01psa:7621", "127.0.0.1:5000", nil, 204},
+		{"pc name", "GET", "/", "workshop-pc:7621", "127.0.0.1:5000", nil, 204},
 	}
 	for _, c := range cases {
 		r := httptest.NewRequest(c.method, c.path, strings.NewReader("{}"))
