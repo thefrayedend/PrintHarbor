@@ -41,6 +41,9 @@ type Library struct {
 	byVendor map[string]map[string]*Preset // vendor+"\x00"+type -> name -> preset
 	Errors   []string
 	onAdd    func(raw map[string]any, vendor, path string) // LoadDirCached records what it reads
+	// frozen holds presets pinned to an exact, already flattened set of
+	// settings (see Freeze): type+"\x00"+name -> settings.
+	frozen map[string]map[string]any
 }
 
 func NewLibrary() *Library {
@@ -119,6 +122,40 @@ func (l *Library) Add(raw map[string]any, vendor, source, file string) *Preset {
 
 func (l *Library) Get(typ, name string) *Preset { return l.byType[typ][name] }
 
+// Freeze pins a preset to exactly these (already flattened) settings: Resolve
+// returns them whatever the preset's file or its parents say, and presets that
+// inherit from it build on the pinned values. This is how a "locked" profile
+// stays the same when the stock profiles are updated. flat is used as given
+// and must not be changed afterwards.
+func (l *Library) Freeze(typ, name string, flat map[string]any) {
+	if l.frozen == nil {
+		l.frozen = map[string]map[string]any{}
+	}
+	l.frozen[typ+"\x00"+name] = flat
+}
+
+// Frozen reports whether a preset is pinned (see Freeze).
+func (l *Library) Frozen(typ, name string) bool { return l.frozen[typ+"\x00"+name] != nil }
+
+// All returns every selectable preset, of every type.
+func (l *Library) All() []*Preset {
+	var out []*Preset
+	for _, m := range l.byType {
+		for _, p := range m {
+			if p.Instantiation {
+				out = append(out, p)
+			}
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Type != out[j].Type {
+			return out[i].Type < out[j].Type
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out
+}
+
 func (l *Library) lookupParent(p *Preset) *Preset {
 	if p.Inherits == "" {
 		return nil
@@ -152,24 +189,44 @@ func (l *Library) OwnKeys(typ, name string) map[string]bool {
 
 // Resolve flattens the inherits chain of a preset. Child values win.
 // The returned map has no "inherits" key and is safe to hand to Orca.
+// A frozen preset (see Freeze) resolves to its pinned settings.
 func (l *Library) Resolve(typ, name string) (map[string]any, error) {
+	return l.resolve(typ, name, true)
+}
+
+// ResolveStock is Resolve without the pins: what the preset's files say now.
+func (l *Library) ResolveStock(typ, name string) (map[string]any, error) {
+	return l.resolve(typ, name, false)
+}
+
+func (l *Library) resolve(typ, name string, pins bool) (map[string]any, error) {
 	p := l.Get(typ, name)
 	if p == nil {
 		return nil, fmt.Errorf("%s preset %q not found", typ, name)
 	}
 	var chain []*Preset
+	var base map[string]any // pinned settings of the nearest frozen preset in the chain
 	seen := map[*Preset]bool{}
 	for cur := p; cur != nil; cur = l.lookupParent(cur) {
 		if seen[cur] {
 			return nil, fmt.Errorf("inherits loop at %q", cur.Name)
 		}
 		seen[cur] = true
+		if pins {
+			if f := l.frozen[cur.Type+"\x00"+cur.Name]; f != nil {
+				base = f
+				break // everything above is already inside the pinned settings
+			}
+		}
 		chain = append(chain, cur)
 		if cur.Inherits != "" && l.lookupParent(cur) == nil {
 			return nil, fmt.Errorf("%q inherits missing preset %q", cur.Name, cur.Inherits)
 		}
 	}
 	out := map[string]any{}
+	for k, v := range base {
+		out[k] = v
+	}
 	for i := len(chain) - 1; i >= 0; i-- {
 		for k, v := range chain[i].Raw {
 			out[k] = v

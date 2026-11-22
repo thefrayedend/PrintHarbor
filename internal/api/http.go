@@ -642,6 +642,8 @@ func (a *App) Handler(web fs.FS) http.Handler {
 	a.integrationRoutes(mux)
 	a.cameraRoutes(mux)
 	a.reachRoutes(mux)
+	a.profRoutes(mux)
+	a.updRoutes(mux)
 	a.workerRoutes(mux)
 	a.controlRoutes(mux)
 	a.streamRoutes(mux)

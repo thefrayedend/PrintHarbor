@@ -1,0 +1,12 @@
+.git
+.github
+app
+versions
+dist
+data
+out
+github
+tests
+*.exe
+*.log
+config.json

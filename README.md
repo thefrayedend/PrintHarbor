@@ -72,7 +72,20 @@ Updates: if PrintHarbor is running when a new version arrives, it's saved as
 ## Other ways to run it
 
 - **Build from source:** Go 1.22+, then `go build -o printharbor ./cmd/printharbor` and `./printharbor`.
-- **Docker:** see the `Dockerfile` (bundles stock OrcaSlicer; use `--network host`).
+- **Docker (Linux):** PrintHarbor and OrcaSlicer in one image, tested by slicing a real model before every push:
+
+  ```
+  docker run -d --name printharbor --restart unless-stopped --network host \
+    -v printharbor-data:/data ghcr.io/thefrayedend/printharbor:latest
+  ```
+
+  Then open `http://<that machine>:7621`. `--network host` lets it find your printers and answer `harbor.local`. To update, pull the image and start it again; everything you made is in the `/data` volume.
+
+## Updates
+
+- **PrintHarbor itself** looks at this repository's `latest` release and offers the new build (Settings → General → Updates). It downloads the program, checks its SHA-256 and restarts. You can have it install updates by itself, or not look at all.
+- **Printer, quality and filament profiles** are OrcaSlicer's own, packed daily from OrcaSlicer's source (release `orca-profiles`) and downloaded when they change, so new printers and fixed profiles arrive on their own. When an update changes a profile, the settings it had before are kept and you can go back to them; a profile you lock is never changed (Settings → Printing → Profile updates).
+- **The Android app** offers its new version when it starts.
 - **Releases:** the GitHub workflow builds Windows, Linux and macOS binaries (amd64 + arm64).
 
 ## Hardware

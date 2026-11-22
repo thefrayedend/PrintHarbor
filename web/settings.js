@@ -33,6 +33,7 @@ async function renderSettings() {
       <div class="card">
         <h3>PrintHarbor</h3>
         <p class="small muted">Version ${esc(info.version)}${info.build_number ? `, build ${esc(info.build_number)}` : ""}, running since ${new Date(info.started_at).toLocaleString()}.</p>
+        <div id="upd-box" class="small"></div>
         <div id="reach-box" class="small"></div>
         <p class="small muted">On Windows it lives in the system tray (the anchor icon by the clock): click it to open this page, right-click for Restart, Start with Windows and Quit.</p>
         ${info.can_restart ? `<button id="restart-btn">Restart PrintHarbor</button>
@@ -72,6 +73,11 @@ async function renderSettings() {
         <label class="field"><span>Set defaults for</span><select id="pd-scope"></select></label>
         <div id="pd-body"><p class="muted small">Loading…</p></div>
         <div class="row" style="justify-content:flex-start;gap:10px;margin-top:10px"><button type="button" class="primary" id="pd-save">Save these defaults</button><span class="small muted" id="pd-count"></span></div>
+      </div>
+      <div class="card" id="prof-updates">
+        <h3>Profile updates</h3>
+        <p class="small muted">PrintHarbor downloads OrcaSlicer's printer, quality and filament profiles itself and looks for new ones every day, so new printers and fixed profiles arrive on their own. When an update changes a profile, the settings it had before are kept (one earlier copy per profile): <b>Go back</b> returns to them. <b>Lock</b> freezes a profile exactly as it is now so no update touches it. Your own profiles are never overwritten.</p>
+        <div id="prof-box"><p class="muted small">Loading…</p></div>
       </div>
       <div class="card" id="my-profiles">
         <h3>Your profiles</h3>
@@ -434,6 +440,8 @@ async function renderSettings() {
     stBtn.disabled = false;
   };
   drawReach();
+  drawUpdate();
+  drawProfUpdates();
   $("#settings-save").onclick = async () => {
     const out = collect();
     try {
@@ -553,5 +561,92 @@ async function drawReach(fresh) {
     try { await api("/api/reach/allow", { method: "POST" }); toast("Windows Firewall now allows PrintHarbor."); }
     catch (e) { toast(e.message, true); }
     drawReach(true);
+  };
+}
+
+// ---- PrintHarbor updating itself (Settings → General) ----
+async function drawUpdate(u) {
+  const box = $("#upd-box"); if (!box) return;
+  if (!u) { try { u = await api("/api/update"); } catch (_) { return; } }
+  const when = u.checked_at && !u.checked_at.startsWith("0001") ? "Last looked " + new Date(u.checked_at).toLocaleString() + "." : "Has not looked yet.";
+  let line;
+  if (u.installing) line = `<b>Installing build ${esc(u.latest)}…</b> PrintHarbor restarts by itself in a moment.`;
+  else if (u.available) line = `<div style="margin:8px 0;padding:10px 12px;border-radius:10px;background:var(--warn-bg)"><b>Build ${esc(u.latest)} is available</b> (this is build ${esc(u.build)}). ${u.can_install ? `<button class="primary" id="upd-go" style="margin-left:6px">Update now</button>` : esc(u.why)}${u.notes ? `<div class="muted" style="margin-top:6px;white-space:pre-wrap">${esc(u.notes)}</div>` : ""}</div>`;
+  else if (u.mode === "off") line = "PrintHarbor does not look for updates.";
+  else line = u.error ? `<span class="err">${esc(u.error)}</span>` : (u.latest ? "This is the newest build. " : "") + when;
+  box.innerHTML = `<p style="margin:8px 0 4px"><b>Updates</b> <select id="upd-mode" style="width:auto;margin-left:6px">
+      <option value="ask">Tell me, I'll press Update</option><option value="auto">Install by itself when nothing is slicing</option><option value="off">Don't look</option></select>
+      <button id="upd-check" style="margin-left:6px">Look now</button></p><div>${line}</div>`;
+  $("#upd-mode").value = u.mode;
+  $("#upd-mode").onchange = async (e) => { try { const r = await api("/api/update/mode", { json: { mode: e.target.value } }); drawUpdate(r.update); } catch (x) { toast(x.message, true); } };
+  $("#upd-check").onclick = async (e) => { e.target.disabled = true; try { drawUpdate(await api("/api/update/check", { method: "POST" })); } catch (x) { toast(x.message, true); drawUpdate(); } };
+  const go = $("#upd-go");
+  if (go) go.onclick = () => installUpdate(go);
+}
+async function installUpdate(btn, force) {
+  if (btn) { btn.disabled = true; btn.textContent = "Downloading…"; }
+  try {
+    await api("/api/update/install" + (force ? "?force=1" : ""), { method: "POST" });
+    toast("Update downloaded. PrintHarbor is restarting; this page reloads by itself.");
+  } catch (e) {
+    if (!force && /sliced or sent/.test(e.message) && confirm(e.message + "\n\nUpdate anyway?")) return installUpdate(btn, true);
+    toast(e.message, true);
+    if (btn) { btn.disabled = false; btn.textContent = "Update now"; }
+  }
+}
+
+// ---- Profile updates (Settings → Printing) ----
+const PROF_KIND = { machine: "Printer", process: "Quality", filament: "Filament" };
+async function drawProfUpdates(u, note) {
+  const box = $("#prof-box"); if (!box) return;
+  if (!u) { try { u = await api("/api/profiles/updates"); } catch (e) { box.innerHTML = `<p class="err small">${esc(e.message)}</p>`; return; } }
+  const t = (x) => x && !x.startsWith("0001") ? new Date(x).toLocaleString() : "never";
+  const c = u.counts || {};
+  const src = u.channel === "off" ? "Switched off: profiles come from OrcaSlicer's own folder."
+    : u.using === "downloaded" ? `Using downloaded profiles (OrcaSlicer ${esc(u.ref || "")}), downloaded ${t(u.fetched_at)}. Last looked ${t(u.checked_at)}.`
+    : "No profiles downloaded yet; using OrcaSlicer's own folder until the first download.";
+  const act = (p, what, label, cls) => `<button type="button" class="${cls || ""}" data-pact="${what}" data-ptype="${esc(p.type)}" data-pname="${esc(p.name)}">${label}</button>`;
+  const mine = (p) => p.source && p.source !== "system" ? ` <span style="padding:1px 7px;border-radius:999px;background:var(--info-bg);font-size:12px">yours</span>` : "";
+  const locked = (u.locked || []).map((p) => `<tr><td>${PROF_KIND[p.type] || esc(p.type)}</td><td>${esc(p.name)}${mine(p)}${p.differs ? ` <span style="padding:1px 7px;border-radius:999px;background:var(--warn-bg);font-size:12px">update available</span>` : ""}</td><td class="muted">since ${t(p.since)}</td><td style="text-align:right;white-space:nowrap">${p.can_revert ? act(p, "revert", "Swap with other copy") : ""} ${act(p, "unlock", p.differs ? "Unlock and take the update" : "Unlock")}</td></tr>`).join("");
+  const changes = (u.changes || []).map((p) => `<tr><td>${PROF_KIND[p.type] || esc(p.type)}</td><td>${esc(p.name)}${mine(p)}</td><td class="muted">${p.kind === "added" ? "new" : p.kind === "removed" ? "removed by OrcaSlicer, kept here" : "changed"} ${t(p.at)}</td><td style="text-align:right;white-space:nowrap">${p.locked ? `<span class="muted">locked</span>` : (p.can_revert ? act(p, "revert", "Go back") + " " : "") + act(p, "lock", "Lock")}</td></tr>`).join("");
+  box.innerHTML = `
+    <p class="small">${src}${u.last_error ? ` <span class="err">${esc(u.last_error)}</span>` : ""}</p>
+    <p class="small muted">${c.machine || 0} printer, ${c.process || 0} quality and ${c.filament || 0} filament profiles.</p>
+    <div class="row" style="justify-content:flex-start;gap:8px;flex-wrap:wrap">
+      <button type="button" class="primary" id="prof-check">Look for new profiles now</button>
+      <select id="prof-chan" style="width:auto;min-width:230px"><option value="newest">Keep profiles up to date</option><option value="off">Off (only OrcaSlicer's folder)</option></select>
+      <span class="small" id="prof-note">${esc(note || "")}</span>
+    </div>
+    <div class="settings-group">Locked profiles</div>
+    ${locked ? `<table class="small" style="width:100%">${locked}</table>` : `<p class="small muted">None. Lock one from the list below, or find any profile here:</p>`}
+    <div class="row" style="justify-content:flex-start;gap:8px;margin-top:6px"><input id="prof-find" placeholder="Find a profile to lock (type part of its name)" style="max-width:420px"></div>
+    <div id="prof-found" style="max-height:260px;overflow:auto"></div>
+    <div class="settings-group">What changed${u.total_changes > (u.changes || []).length ? ` (newest ${u.changes.length} of ${u.total_changes})` : ""}</div>
+    ${changes ? `<div style="max-height:360px;overflow:auto"><table class="small" style="width:100%">${changes}</table></div>` : `<p class="small muted">Nothing has changed since the profiles were first downloaded.</p>`}`;
+  $("#prof-chan").value = u.channel;
+  $("#prof-chan").onchange = async (e) => { try { const r = await api("/api/update/mode", { json: { profiles: e.target.value } }); drawProfUpdates(r.profiles); } catch (x) { toast(x.message, true); } };
+  $("#prof-check").onclick = async (e) => {
+    e.target.disabled = true; $("#prof-note").textContent = "Looking… (the first download takes a minute)";
+    try { const r = await api("/api/profiles/updates/check", { method: "POST" }); drawProfUpdates(r.updates, r.message); }
+    catch (x) { toast(x.message, true); drawProfUpdates(); }
+  };
+  let timer;
+  $("#prof-find").oninput = (e) => {
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      const q = e.target.value.trim(), out = $("#prof-found");
+      if (q.length < 2) { out.innerHTML = ""; return; }
+      const list = await api("/api/profiles/find?q=" + encodeURIComponent(q)).catch(() => []);
+      out.innerHTML = list.length ? `<table class="small" style="width:100%">${list.map((p) => `<tr><td>${PROF_KIND[p.type] || esc(p.type)}</td><td>${esc(p.name)}${mine(p)}</td><td style="text-align:right">${p.locked ? `<span class="muted">locked</span>` : act(p, "lock", "Lock")}</td></tr>`).join("")}</table>` : `<p class="small muted">No profile with that in its name.</p>`;
+    }, 250);
+  };
+  box.onclick = async (e) => {
+    const b = e.target.closest("[data-pact]"); if (!b) return;
+    b.disabled = true;
+    try {
+      const r = await api("/api/profiles/lock", { json: { type: b.dataset.ptype, name: b.dataset.pname, do: b.dataset.pact } });
+      const said = { lock: "Locked: updates will not change it.", unlock: "Unlocked: it follows the current profiles again.", revert: "Its other copy is in use now, and it is locked there." }[b.dataset.pact];
+      toast(said); drawProfUpdates(r);
+    } catch (x) { toast(x.message, true); b.disabled = false; }
   };
 }

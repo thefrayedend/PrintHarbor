@@ -1,43 +1,57 @@
-# PrintHarbor + stock OrcaSlicer in one image.
+# PrintHarbor + OrcaSlicer in one image.
 #
-#   docker build -t printharbor .
-#   docker run --network host -v printharbor-data:/data -v /path/to/models:/models:ro printharbor
+#   docker run -d --name printharbor --restart unless-stopped --network host \
+#     -v printharbor-data:/data -v /path/to/models:/models:ro \
+#     ghcr.io/thefrayedend/printharbor:latest
 #
-# --network host lets PrintHarbor see your printers and answer harbor.local
-# (mDNS). Add /models under Library → Folders… to browse your model folders.
+# --network host lets PrintHarbor find your printers and answer harbor.local.
+# Then open http://<this machine>:7621. Add /models under Library → Folders…
 #
-# ORCA_APPIMAGE_URL must point at an official OrcaSlicer Linux AppImage from
-# https://github.com/OrcaSlicer/OrcaSlicer/releases (file names change per
-# release, so check the page and pin the version you've tested).
-# NOTE: not yet tested end to end.
+# The image is built and tested by .github/workflows/build.yml: it has to slice
+# a real model before it is pushed. To update, pull the new image and start it
+# again; everything you made is in the /data volume.
 
-FROM golang:1.22-bookworm AS build
+FROM golang:1.24-bookworm AS build
 WORKDIR /src
-COPY go.mod ./
 COPY . .
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/printharbor ./cmd/printharbor
 
-FROM debian:bookworm-slim AS orca
-ARG ORCA_APPIMAGE_URL
-RUN test -n "$ORCA_APPIMAGE_URL" || (echo "Set --build-arg ORCA_APPIMAGE_URL=<OrcaSlicer Linux AppImage URL>" && exit 1)
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl && rm -rf /var/lib/apt/lists/*
+FROM ubuntu:24.04 AS orca
+ARG ORCA_VERSION=2.5.1
+ARG ORCA_APPIMAGE_URL=https://github.com/OrcaSlicer/OrcaSlicer/releases/download/v2.5.1/OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.5.1.AppImage
+ARG ORCA_APPIMAGE_SHA256=073b8105c928356141db0ddbce88b81d52c7a9e2442f9baae0a9089c89ff04eb
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git && rm -rf /var/lib/apt/lists/*
 WORKDIR /opt
-RUN curl -fsSL -o orca.AppImage "$ORCA_APPIMAGE_URL" && chmod +x orca.AppImage \
- && ./orca.AppImage --appimage-extract >/dev/null && mv squashfs-root orcaslicer && rm orca.AppImage
+RUN curl -fsSL -o orca.AppImage "$ORCA_APPIMAGE_URL" \
+ && echo "$ORCA_APPIMAGE_SHA256  orca.AppImage" | sha256sum -c - \
+ && chmod +x orca.AppImage && ./orca.AppImage --appimage-extract >/dev/null \
+ && mv squashfs-root orcaslicer && rm orca.AppImage && chmod -R a+rX orcaslicer
+# OrcaSlicer 2.5 packs its profiles in a form only it reads, so the readable
+# ones come from its source for the same version. (PrintHarbor then keeps them
+# up to date by itself, in /data.)
+RUN git clone --depth 1 --filter=blob:none --sparse --branch "v$ORCA_VERSION" https://github.com/OrcaSlicer/OrcaSlicer.git /tmp/orca-src \
+ && git -C /tmp/orca-src sparse-checkout set resources/profiles \
+ && mkdir /opt/orca-profiles && cp -r /tmp/orca-src/resources/profiles/. /opt/orca-profiles/ \
+ && find /opt/orca-profiles -type f ! -name '*.json' -delete && rm -rf /tmp/orca-src
 
-FROM debian:bookworm-slim
-# Orca links GTK/WebKit even for the CLI; these cover the AppImage's needs.
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates libgtk-3-0 libwebkit2gtk-4.1-0 libgl1 libegl1 libgstreamer1.0-0 \
-      libgstreamer-plugins-base1.0-0 libsecret-1-0 libosmesa6 locales \
+FROM ubuntu:24.04
+# What OrcaSlicer's program needs to start (it links GTK and WebKit even when
+# it only slices), and ffmpeg for camera pictures from RTSP printers.
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      ca-certificates tzdata libgtk-3-0t64 libwebkit2gtk-4.1-0 libsoup-3.0-0 libmanette-0.2-0 \
+      libgl1 libegl1 libopengl0 libgstreamer1.0-0 libgstreamer-plugins-base1.0-0 libgstreamer-gl1.0-0 \
+      libsecret-1-0 libsm6 ffmpeg \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=orca /opt/orcaslicer /opt/orcaslicer
+COPY --from=orca /opt/orca-profiles /opt/orca-profiles
 COPY --from=build /out/printharbor /usr/local/bin/printharbor
 ENV ORCA_PATH=/opt/orcaslicer/AppRun \
-    ORCA_PROFILES=/opt/orcaslicer/resources/profiles
+    ORCA_PROFILES=/opt/orca-profiles \
+    PRINTHARBOR_CONTAINER=1 \
+    HOME=/data/home
+LABEL org.opencontainers.image.source=https://github.com/thefrayedend/PrintHarbor \
+      org.opencontainers.image.licenses=AGPL-3.0
 WORKDIR /data
 EXPOSE 7621
-# Optional: ffmpeg gives camera pictures from RTSP printers (Bambu X1/H2).
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
 VOLUME ["/data"]
 ENTRYPOINT ["printharbor", "-config", "/data/config.json"]

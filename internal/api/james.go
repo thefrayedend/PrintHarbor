@@ -349,6 +349,7 @@ var jamesPage struct {
 // that file. The page is sent compressed and with a fingerprint, so the
 // browser only downloads it again when it has actually changed.
 func (a *App) serve3DJames(web fs.FS) http.HandlerFunc {
+	go keep3DJames(web, filepath.Join(a.Store.Dir(), "3djames.html"))
 	return func(w http.ResponseWriter, r *http.Request) {
 		var src []byte
 		var key string
@@ -370,6 +371,12 @@ func (a *App) serve3DJames(web fs.FS) http.HandlerFunc {
 			if len(src) == 0 && web != nil {
 				key, mod = "", time.Time{}
 				src, _ = fs.ReadFile(web, "3djames.html")
+			}
+			// A build without 3D James inside (the published ones): use the
+			// copy an earlier build left in the data folder (see keep3DJames).
+			if len(src) == 0 {
+				key, mod = "", time.Time{}
+				src, _ = os.ReadFile(filepath.Join(a.Store.Dir(), "3djames.html"))
 			}
 			if len(src) == 0 {
 				jamesPage.Unlock()
@@ -465,4 +472,25 @@ func (a *App) printableRoutes(mux *http.ServeMux) {
 		}
 		writeJSON(w, 200, map[string]bool{"ok": true})
 	})
+}
+
+// keep3DJames copies the 3D James page built into this program to the data
+// folder, so a later build that comes without it (the published builds do)
+// still has it. It does nothing when this build has no page inside or the
+// copy is already the same.
+func keep3DJames(web fs.FS, dst string) {
+	if web == nil {
+		return
+	}
+	src, err := fs.ReadFile(web, "3djames.html")
+	if err != nil || len(src) == 0 {
+		return
+	}
+	if fi, err := os.Stat(dst); err == nil && fi.Size() == int64(len(src)) {
+		return
+	}
+	tmp := dst + ".tmp"
+	if os.WriteFile(tmp, src, 0o644) == nil {
+		_ = os.Rename(tmp, dst)
+	}
 }

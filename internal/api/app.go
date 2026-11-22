@@ -36,8 +36,8 @@ const Version = "0.4.2"
 // Build says exactly which build of the server this is. It is the number of
 // the versions\ folder the exe was saved into, so Settings ("Version 0.4.2,
 // build 56") tells you which backup matches the program that is running.
-// Bump it for every build that is handed over.
-const Build = 79
+// Bump it for every build that is handed over (see docs/CODE-LAYOUT.md).
+const Build = 80
 
 // VersionLabel is the version with its build number, as shown to people.
 func VersionLabel() string { return Version + " (build " + strconv.Itoa(Build) + ")" }
@@ -85,6 +85,7 @@ type App struct {
 	// Restart, set by main, restarts the program (and installs a downloaded
 	// update waiting next to it). Nil when restarting isn't possible.
 	Restart func()
+	upd     updState // the newest published build (see selfupd.go)
 	// StartedAt is when this copy of PrintHarbor started.
 	StartedAt   time.Time
 	Library     *library.Library
@@ -196,6 +197,8 @@ func (a *App) Run(ctx context.Context) {
 	go a.cameraLoop(ctx)
 	go a.aiLoop(ctx)
 	go a.housekeeping(ctx)
+	go a.profLoop(ctx)
+	go a.updLoop(ctx)
 	a.Printers.Run(ctx, time.Duration(a.cfg().PollSeconds)*time.Second)
 	a.Plugins.Stop()
 }
@@ -205,7 +208,7 @@ func (a *App) Run(ctx context.Context) {
 func (a *App) ReloadProfiles() *profiles.Library {
 	l := profiles.NewLibrary()
 	t0 := time.Now()
-	cached, err := l.LoadDirCached(a.cfg().OrcaProfilesDir, "system", filepath.Join(a.Store.Dir(), "cache", "orca-profiles.json"))
+	cached, err := l.LoadDirCached(a.systemProfilesDir(), "system", filepath.Join(a.Store.Dir(), "cache", "orca-profiles.json"))
 	if err != nil {
 		l.Errors = append(l.Errors, "Orca profiles: "+err.Error())
 	}
@@ -222,6 +225,7 @@ func (a *App) ReloadProfiles() *profiles.Library {
 	harbor := a.presetsDir()
 	_ = os.MkdirAll(harbor, 0o755)
 	_ = l.LoadDir(harbor, "harbor")
+	a.applySavedProfiles(l) // profiles kept from before an update, and the locked ones
 	a.libMu.Lock()
 	a.lib = l
 	a.libMu.Unlock()
@@ -270,6 +274,8 @@ func (a *App) SavePreset(typ, name, inherits string, overrides map[string]string
 	if err := os.WriteFile(filepath.Join(dir, unsafeName.ReplaceAllString(name, "_")+".json"), b, 0o644); err != nil {
 		return err
 	}
+	// Saved again on purpose: a lock on the old version must not hide the new one.
+	_ = os.Remove(a.profFile("frozen", typ, name))
 	a.ReloadProfiles()
 	return nil
 }

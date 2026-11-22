@@ -27,10 +27,21 @@ type Config struct {
 	DataDir string `json:"data_dir"`
 	// NoPort80: PrintHarbor also answers on port 80 when it is free, so
 	// http://harbor.local works without ":7621". Set this to true to stop that.
-	NoPort80            bool     `json:"no_port_80,omitempty"`
-	OrcaPath            string   `json:"orca_path"`
-	OrcaProfilesDir     string   `json:"orca_profiles_dir"`
-	OrcaUserPresetsDir  string   `json:"orca_user_presets_dir,omitempty"`
+	NoPort80           bool   `json:"no_port_80,omitempty"`
+	OrcaPath           string `json:"orca_path"`
+	OrcaProfilesDir    string `json:"orca_profiles_dir"`
+	OrcaUserPresetsDir string `json:"orca_user_presets_dir,omitempty"`
+	// ProfilesChannel: "newest" (the default) downloads OrcaSlicer's current
+	// stock profiles and keeps them up to date (see internal/api/profupd.go);
+	// "off" only reads OrcaProfilesDir. ProfilesURL: where the profile packs
+	// come from (empty: PrintHarbor's own releases).
+	ProfilesChannel string `json:"profiles_channel,omitempty"`
+	ProfilesURL     string `json:"profiles_url,omitempty"`
+	// UpdateMode: "ask" (the default) shows a button when a newer PrintHarbor
+	// is out, "auto" installs it when nothing is printing or slicing, "off"
+	// never looks. UpdateURL: where releases come from (empty: GitHub).
+	UpdateMode          string   `json:"update_mode,omitempty"`
+	UpdateURL           string   `json:"update_url,omitempty"`
 	OrcaSliceArgs       []string `json:"orca_slice_args"`
 	MaxConcurrentSlices int      `json:"max_concurrent_slices"`
 	SliceTimeoutMinutes int      `json:"slice_timeout_minutes"`

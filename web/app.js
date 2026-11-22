@@ -186,6 +186,7 @@ async function boot() {
   setInterval(refresh, 3000);
   if (typeof setupAssistant === "function") setupAssistant();
   appWindowCheck();
+  setTimeout(offerServerUpdate, 8000); setInterval(offerServerUpdate, 30 * 60000);
   setInterval(() => checkForUpdate(), 15000);
 }
 
@@ -205,6 +206,33 @@ async function checkForUpdate(reload = () => location.reload()) {
   n.style.cssText = "bottom:auto;top:10px;z-index:101";
   n.innerHTML = `PrintHarbor was updated${i.build_number && i.build_number !== state.info.build_number ? " to build " + esc(i.build_number) : (i.version && i.version !== state.info.version ? " to " + esc(i.version) : "")}. Save what you have open, then <button class="primary" style="margin-left:8px">Reload</button>`;
   n.querySelector("button").onclick = () => reload();
+  document.body.appendChild(n);
+}
+
+// A newer PrintHarbor is out (the server looks on GitHub): offer it once per
+// build. "Later" hides it until the page is opened again.
+async function offerServerUpdate() {
+  if ($("#ph-offer")) return;
+  let u; try { u = await api("/api/update"); } catch (_) { return; }
+  if (!u.available || u.installing || u.mode === "off" || window.__phOfferSeen === u.latest) return;
+  const n = document.createElement("div");
+  n.id = "ph-offer";
+  n.className = "banner";
+  n.style.cssText = "bottom:auto;top:10px;z-index:101";
+  n.innerHTML = `PrintHarbor build ${esc(u.latest)} is available. ${u.can_install ? `<button class="primary" style="margin-left:8px" data-go>Update now</button>` : esc(u.why)} <button style="margin-left:6px" data-later>Later</button>`;
+  n.querySelector("[data-later]").onclick = () => { window.__phOfferSeen = u.latest; n.remove(); };
+  const go = n.querySelector("[data-go]");
+  if (go) go.onclick = async () => {
+    go.disabled = true; go.textContent = "Downloading…";
+    let force = "";
+    for (;;) {
+      try { await api("/api/update/install" + force, { method: "POST" }); n.textContent = "Update downloaded. PrintHarbor is restarting…"; return; }
+      catch (e) {
+        if (!force && /sliced or sent/.test(e.message) && confirm(e.message + "\n\nUpdate anyway?")) { force = "?force=1"; continue; }
+        toast(e.message, true); go.disabled = false; go.textContent = "Update now"; return;
+      }
+    }
+  };
   document.body.appendChild(n);
 }
 
