@@ -145,6 +145,7 @@ func (o *Orca) sliceOnce(ctx context.Context, req Request) (Result, error) {
 	if err := os.MkdirAll(req.WorkDir, 0o755); err != nil {
 		return res, err
 	}
+	collapseVariants(req.Machine, req.Process, req.Filaments)
 	ensureLayerReset(req.Machine, req.Process)
 	if strings.TrimSpace(req.LevelGcode) != "" {
 		injectLeveling(req.Machine, req.LevelGcode)

@@ -27,6 +27,8 @@ var orcaCodes = map[int]string{
 	-101: "the print would collide with itself (parts or the prime tower overlap)",
 	-102: "some of the print would be outside the area this printer can reach",
 	-103: "one of the filaments can't be printed on this bed plate type (see the bed type setting)",
+	// 0xC0000005 on Windows: OrcaSlicer itself crashed (read memory it shouldn't).
+	-1073741819: "OrcaSlicer crashed while reading the settings or the model. Try another quality profile, or another layout of the parts; if every plate does this on one printer, its profile is the cause",
 }
 
 // orcaKnown are messages OrcaSlicer prints for faults we know what to do about.

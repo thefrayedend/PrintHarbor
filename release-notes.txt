@@ -1,2 +1,3 @@
-Build 82
-- Model library backup (Settings > General > Model library backup): one zip with every model and everything PrintHarbor knows about them (site details, your titles, tags, notes, favourites, print counts, added photos). A new one replaces the old one. Made when you press the button, or on a timer you choose. Another PrintHarbor restores it with Restore.
+Build 83
+- Fixed: OrcaSlicer crashed (code -1073741819) on every plate for the Snapmaker U1 and other printers with more than two tool heads whose profiles list several nozzle kinds (also the Prusa CORE One INDX). PrintHarbor now picks the nozzle kind per tool head before OrcaSlicer reads the profile, the way OrcaSlicer's own window does.
+- A crash of OrcaSlicer now says so in plain words.
