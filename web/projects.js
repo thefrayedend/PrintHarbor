@@ -134,7 +134,7 @@ async function renderProject() {
   const review = pr.flatMap((x) => x.runs.filter((r) => r.state === "printed").map((r) => ({ ...r, plate: x.plate })));
   setHTML($("#pm-review"), review.length ? `<div class="pm-check"><b>Finished: how did ${review.length === 1 ? "it" : "they"} come out?</b>${review.map((r) => `<span class="pm-run">Plate ${r.plate} on ${esc(r.printer_name)}
     <button class="icon" data-review="${r.id}:1">OK</button><button class="icon danger" data-review="${r.id}:0">Failed</button></span>`).join("")}</div>` : "");
-  const st = JSON.stringify(pr.map((x) => [x.plate, x.needed, x.accepted, x.printing, x.failed, x.remaining]));
+  const st = JSON.stringify(pr.map((x) => [x.plate, x.needed, x.accepted, x.manual, x.printing, x.review, x.failed, x.remaining]));
   if (st !== state.pm.statusSent || m_opened) { state.pm.statusSent = st; pmPost({ ph: "pm-status", status: { progress: pr } }); }
 }
 
@@ -222,9 +222,12 @@ window.addEventListener("message", async (e) => {
     renderProject();
   }
   if (m.ph === "pm-printed") {
-    await api(`/api/projects/${state.project.id}/printed`, { json: { plate: m.plate, done: m.done } }).catch((er) => toast(er.message, true));
+    let ok = true;
+    await api(`/api/projects/${state.project.id}/printed`, { json: { plate: m.plate, done: m.done } }).catch((er) => { ok = false; toast(er.message, true); });
     state.progress = await api(`/api/projects/${state.project.id}/progress`);
     renderProject();
+    const x = progressFor(m.plate);
+    if (ok && x) toast(m.done ? `Plate ${m.plate} marked printed (${x.accepted}/${x.needed}).` : `Plate ${m.plate} is no longer marked printed (${x.accepted}/${x.needed}).`);
   }
   if (m.ph === "pm-print") {
     state.pm.plate = m.plate;

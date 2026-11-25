@@ -1,3 +1,3 @@
-Build 83
-- Fixed: OrcaSlicer crashed (code -1073741819) on every plate for the Snapmaker U1 and other printers with more than two tool heads whose profiles list several nozzle kinds (also the Prusa CORE One INDX). PrintHarbor now picks the nozzle kind per tool head before OrcaSlicer reads the profile, the way OrcaSlicer's own window does.
-- A crash of OrcaSlicer now says so in plain words.
+Build 84
+- Fixed: "Mark printed" did nothing on a plate that had finished printing but was not checked yet ("how did it come out?"). It now counts that print as done.
+- The slicer's plate panel says when a plate is printed ("✓ Printed 1/1"), when a finished print is waiting to be checked, and hides "Mark printed" once the plate is done. Marking shows a short confirmation.

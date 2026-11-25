@@ -299,7 +299,13 @@ func (a *App) MarkPrinted(projectID string, plate int, done bool) error {
 		a.saveRunsLocked()
 		return nil
 	}
-	acc, pr, rev := 0, 0, 0
+	// A print of this plate that finished and is waiting for you to check it
+	// really was printed: marking the plate printed accepts it (as OK on the
+	// project's "how did it come out?" line would). Only the copies still
+	// missing after that are added as marked by hand.
+	acc, pr := 0, 0
+	need := copiesFor(p, plate)
+	now := time.Now()
 	for _, r := range a.runs {
 		if r.ProjectID != projectID || r.Plate != plate {
 			continue
@@ -309,8 +315,15 @@ func (a *App) MarkPrinted(projectID string, plate int, done bool) error {
 			acc++
 		case "printing":
 			pr++
-		case "printed":
-			rev++
+		}
+	}
+	for _, r := range a.runs {
+		if r.ProjectID == projectID && r.Plate == plate && r.State == "printed" && acc+pr < need {
+			r.State = "accepted"
+			if r.Finished.IsZero() {
+				r.Finished = now
+			}
+			acc++
 		}
 	}
 	for _, j := range a.Queue.List() {
@@ -318,8 +331,7 @@ func (a *App) MarkPrinted(projectID string, plate int, done bool) error {
 			pr++
 		}
 	}
-	add := copiesFor(p, plate) - acc - pr - rev
-	now := time.Now()
+	add := need - acc - pr
 	for i := 0; i < add; i++ {
 		a.runs = append(a.runs, &Run{ID: runID(), ProjectID: projectID, ProjectName: p.Name, Plate: plate,
 			PrinterName: "Marked done", State: "accepted", Manual: true, Started: now, Finished: now})

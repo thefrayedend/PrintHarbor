@@ -84,7 +84,7 @@ export function renderPlateBar() {
   const prog = (i) => {
     const k = used.indexOf(i) + 1, pr = S.pm && S.pmStatus && k ? (S.pmStatus.progress || []).find((x) => x.plate === k) : null;
     if (!pr || !pr.needed) return '';
-    return `<em class="pp ${pr.remaining === 0 ? 'done' : pr.printing ? 'busy' : ''}" title="${pr.accepted} of ${pr.needed} printed${pr.printing ? `, ${pr.printing} printing` : ''}">${pr.accepted}/${pr.needed}</em>`;
+    return `<em class="pp ${pr.accepted >= pr.needed ? 'done' : pr.printing || pr.review ? 'busy' : ''}" title="${pr.accepted} of ${pr.needed} printed${pr.printing ? `, ${pr.printing} printing` : ''}${pr.review ? `, ${pr.review} finished and not checked yet` : ''}">${pr.accepted >= pr.needed ? '✓ ' : ''}${pr.accepted}/${pr.needed}</em>`;
   };
   bar.innerHTML = Array.from({ length: S.nPlates }, (_, i) => `<button data-plate="${i}" class="${i === S.plate ? 'active' : ''}" title="Plate ${i + 1}: ${platesObjects(i).length} object(s)">${dot(i)}Plate ${i + 1}<span>${platesObjects(i).length}</span>${prog(i)}</button>`).join('')
     + (S.mode === 'preview' ? '' : '<button data-sl="addplate" class="add" title="Add an empty plate (or drag a model past the last plate)">+ Plate</button>');

@@ -98,6 +98,14 @@ export function settingsPanel() {
     </div>
     ${pmFooter()}`;
 }
+/** Mark printed / Unmark. A plate printed for real and checked needs neither. */
+function pmMarkButton(pr) {
+  if (!pr.needed) return '';
+  if (pr.manual > 0) return `<button class="btn tiny" data-pmprinted="0" title="Undo marking this plate printed by hand">Unmark</button>`;
+  if (pr.accepted >= pr.needed) return '';
+  const tip = pr.review ? 'It finished printing: mark it printed (the parts came out fine)' : 'Mark this plate printed, without sending it to a printer';
+  return `<button class="btn tiny" data-pmprinted="1" title="${tip}">Mark printed</button>`;
+}
 /** Bottom of the panel: how this plate is doing, and Print. */
 export function pmFooter() {
   const k = usedPlates().indexOf(S.plate) + 1;
@@ -105,8 +113,8 @@ export function pmFooter() {
   const list = platesObjects(S.plate);
   const dis = !list.length || list.some((o) => o.outside);
   const line = pr ? `<div class="pm-track"><span class="copies"><button class="btn tiny" data-pmcopies="-1" title="Fewer copies">−</button> ×${pr.needed} <button class="btn tiny" data-pmcopies="1" title="More copies">+</button></span>
-      <span class="small ${pr.remaining === 0 && pr.needed ? 'ok-text' : 'muted'}">✓ ${pr.accepted}/${pr.needed}${pr.printing ? ` · ${pr.printing} printing` : ''}${pr.failed ? ` · ${pr.failed} failed` : ''}</span>
-      ${pr.needed ? `<button class="btn tiny" data-pmprinted="${pr.manual > 0 ? '0' : '1'}" title="${pr.manual > 0 ? 'Undo marking this plate printed by hand' : 'Mark this plate printed, without sending it to a printer'}">${pr.manual > 0 ? 'Unmark' : 'Mark printed'}</button>` : ''}</div>` : '';
+      <span class="small ${pr.accepted >= pr.needed && pr.needed ? 'ok-text' : 'muted'}" title="${pr.accepted} of ${pr.needed} printed and done">${pr.accepted >= pr.needed && pr.needed ? '✓ Printed' : '✓'} ${pr.accepted}/${pr.needed}${pr.printing ? ` · ${pr.printing} printing` : ''}${pr.review ? ` · ${pr.review} finished, not checked yet` : ''}${pr.failed ? ` · ${pr.failed} failed` : ''}</span>
+      ${pmMarkButton(pr)}</div>` : '';
   return `<div class="sl-go">${line}<button class="btn primary big" data-sl="pmprint" ${dis ? 'disabled' : ''}>Print plate ${S.plate + 1}…</button>
     ${list.some((o) => o.outside) ? '<p class="hint" style="text-align:center">Move everything onto the plate first.</p>' : ''}
     <div class="sl-source">OrcaSlicer engine (AGPL-3.0) · <a href="https://github.com/Helio-Additive/slicer-cli" target="_blank" rel="noopener">source</a></div></div>`;
