@@ -1,3 +1,2 @@
-Build 84
-- Fixed: "Mark printed" did nothing on a plate that had finished printing but was not checked yet ("how did it come out?"). It now counts that print as done.
-- The slicer's plate panel says when a plate is printed ("✓ Printed 1/1"), when a finished print is waiting to be checked, and hides "Mark printed" once the plate is done. Marking shows a short confirmation.
+Build 85
+- Printed plates are red in the slicer: the bed itself, its tab in the plate bar, and the "✓ Printed 1/1" line. Plates still to print stay grey.

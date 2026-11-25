@@ -6,7 +6,7 @@ import { F, S, esc, SIMPLE, LIGHT_AT, $, ENFORCE, BLOCK } from './core.js';
 import { minLayerHeight, plateMemory, memBudget } from './memory.js';
 import { MAX_FILAMENTS, filColor, pickPreset, savePrefs } from './profiles.js';
 import { bed, invalidate } from './scene.js';
-import { platesObjects, renderPlateBar, plateX } from './plates.js';
+import { platesObjects, renderPlateBar, plateX, buildBed } from './plates.js';
 import { recolor, worldBox } from './objects.js';
 import { fsCard } from './fullspectrum.js';
 import { renderSide, PAINT_TOOLS, ic } from './toolbar.js';
@@ -113,14 +113,14 @@ export function pmFooter() {
   const list = platesObjects(S.plate);
   const dis = !list.length || list.some((o) => o.outside);
   const line = pr ? `<div class="pm-track"><span class="copies"><button class="btn tiny" data-pmcopies="-1" title="Fewer copies">−</button> ×${pr.needed} <button class="btn tiny" data-pmcopies="1" title="More copies">+</button></span>
-      <span class="small ${pr.accepted >= pr.needed && pr.needed ? 'ok-text' : 'muted'}" title="${pr.accepted} of ${pr.needed} printed and done">${pr.accepted >= pr.needed && pr.needed ? '✓ Printed' : '✓'} ${pr.accepted}/${pr.needed}${pr.printing ? ` · ${pr.printing} printing` : ''}${pr.review ? ` · ${pr.review} finished, not checked yet` : ''}${pr.failed ? ` · ${pr.failed} failed` : ''}</span>
+      <span class="small ${pr.accepted >= pr.needed && pr.needed ? 'printed-text' : 'muted'}" style="white-space:nowrap" title="${pr.accepted} of ${pr.needed} printed and done">${pr.accepted >= pr.needed && pr.needed ? '✓ Printed' : '✓'} ${pr.accepted}/${pr.needed}${pr.printing ? ` · ${pr.printing} printing` : ''}${pr.review ? ` · ${pr.review} finished, not checked yet` : ''}${pr.failed ? ` · ${pr.failed} failed` : ''}</span>
       ${pmMarkButton(pr)}</div>` : '';
   return `<div class="sl-go">${line}<button class="btn primary big" data-sl="pmprint" ${dis ? 'disabled' : ''}>Print plate ${S.plate + 1}…</button>
     ${list.some((o) => o.outside) ? '<p class="hint" style="text-align:center">Move everything onto the plate first.</p>' : ''}
     <div class="sl-source">OrcaSlicer engine (AGPL-3.0) · <a href="https://github.com/Helio-Additive/slicer-cli" target="_blank" rel="noopener">source</a></div></div>`;
 }
 export function setTab(tab) { S.tab = tab === 'settings' ? 'settings' : 'plates'; renderSide(); }
-export function setStatus(st) { S.pmStatus = st; renderPlateBar(); if (S.pm) renderSide(); }
+export function setStatus(st) { S.pmStatus = st; buildBed(); if (S.pm) renderSide(); } // buildBed redraws the plate bar too
 export function setProjectMode(on) { S.pm = !!on; }
 /** Unsaved changes: the project as it would be saved, in short. */
 function projectSig() {

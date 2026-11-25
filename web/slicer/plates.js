@@ -34,6 +34,14 @@ function labelTexture(text, active) {
   return t;
 }
 
+/** Plate i is printed (every copy it needs is done, printed or marked by hand). */
+export function plateDone(i) {
+  if (!S.pm || !S.pmStatus) return false;
+  const k = usedPlates().indexOf(i) + 1;
+  const pr = k ? (S.pmStatus.progress || []).find((x) => x.plate === k) : null;
+  return !!(pr && pr.needed && pr.accepted >= pr.needed);
+}
+
 export function buildBed() {
   if (!bedGroup) return;
   bedGroup.clear();
@@ -44,7 +52,9 @@ export function buildBed() {
   };
   for (let i = 0; i < S.nPlates; i++) {
     const ox = b.x0 + plateX(i), oy = b.y0, cur = i === S.plate;
-    const plate = new THREE.Mesh(new THREE.PlaneGeometry(b.w, b.d), new THREE.MeshStandardMaterial({ color: cur ? 0x2e333a : 0x25292f, roughness: 0.9 }));
+    // A printed plate is red, so it stands out from the ones still to print.
+    const done = plateDone(i);
+    const plate = new THREE.Mesh(new THREE.PlaneGeometry(b.w, b.d), new THREE.MeshStandardMaterial({ color: done ? (cur ? 0x7a2228 : 0x5c1a1f) : (cur ? 0x2e333a : 0x25292f), roughness: 0.9 }));
     plate.position.set(ox + b.w / 2, oy + b.d / 2, -0.05);
     plate.userData.plate = i;
     bedGroup.add(plate);
@@ -86,7 +96,7 @@ export function renderPlateBar() {
     if (!pr || !pr.needed) return '';
     return `<em class="pp ${pr.accepted >= pr.needed ? 'done' : pr.printing || pr.review ? 'busy' : ''}" title="${pr.accepted} of ${pr.needed} printed${pr.printing ? `, ${pr.printing} printing` : ''}${pr.review ? `, ${pr.review} finished and not checked yet` : ''}">${pr.accepted >= pr.needed ? '✓ ' : ''}${pr.accepted}/${pr.needed}</em>`;
   };
-  bar.innerHTML = Array.from({ length: S.nPlates }, (_, i) => `<button data-plate="${i}" class="${i === S.plate ? 'active' : ''}" title="Plate ${i + 1}: ${platesObjects(i).length} object(s)">${dot(i)}Plate ${i + 1}<span>${platesObjects(i).length}</span>${prog(i)}</button>`).join('')
+  bar.innerHTML = Array.from({ length: S.nPlates }, (_, i) => `<button data-plate="${i}" class="${i === S.plate ? 'active' : ''}${plateDone(i) ? ' printed' : ''}" title="Plate ${i + 1}: ${platesObjects(i).length} object(s)${plateDone(i) ? ', printed' : ''}">${dot(i)}Plate ${i + 1}<span>${platesObjects(i).length}</span>${prog(i)}</button>`).join('')
     + (S.mode === 'preview' ? '' : '<button data-sl="addplate" class="add" title="Add an empty plate (or drag a model past the last plate)">+ Plate</button>');
 }
 

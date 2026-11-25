@@ -19,7 +19,10 @@ body.pm main { padding: 8px 10px 10px; }
 body.pm .sl-wrap { height: calc(100dvh - 18px); }
 .sl-plates .pp { font-style: normal; font-size: 11px; margin-left: 6px; padding: 0 5px; border-radius: 8px; background: var(--panel-2); color: var(--muted); }
 .sl-plates .pp.busy { color: var(--accent, #4a9eff); }
-.sl-plates .pp.done { color: #3fb950; }
+.sl-plates .pp.done { color: #fff; background: #b3262e; }
+.printed-text { color: #e5484d; font-weight: 600; }
+.sl-plates button.printed { background: #5c1a1f; border-color: #b3262e; color: #fff; }
+.sl-plates button.printed.active { background: #7a2228; box-shadow: inset 0 0 0 2px var(--primary, #4a9eff); }
 .pm-track { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
 .pm-track .copies { display: inline-flex; align-items: center; gap: 6px; }
 .ok-text { color: #3fb950; }
