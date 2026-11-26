@@ -907,12 +907,22 @@ func (f *FlashForge) rawUpload(ctx context.Context, hdr [][2]string, size int64,
 		return fmt.Errorf("could not reach the printer at %s: %w", f.base.Hostname(), err)
 	}
 	defer conn.Close()
-	// A generous overall cap so a wedged transfer can't hang for ever.
+	// A generous overall cap so a wedged transfer can't hang for ever; and the
+	// socket is closed if the job is cancelled, which unblocks the read/write.
 	deadline := time.Now().Add(6 * time.Minute)
 	if dl, ok := ctx.Deadline(); ok && dl.Before(deadline) {
 		deadline = dl
 	}
 	conn.SetDeadline(deadline)
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() {
+		select {
+		case <-ctx.Done():
+			conn.Close()
+		case <-stop:
+		}
+	}()
 
 	var head bytes.Buffer
 	head.WriteString("POST /uploadGcode HTTP/1.1\r\n")
@@ -924,41 +934,61 @@ func (f *FlashForge) rawUpload(ctx context.Context, hdr [][2]string, size int64,
 		return fmt.Errorf("could not send to the printer: %w", err)
 	}
 
-	// Read the printer's reply in the background. ffReadResponse skips the
-	// interim "100 Continue" and returns the first real response.
+	// Read the printer's reply in the background. It signals "continue" as soon
+	// as the printer answers "100 Continue", so the body is sent immediately
+	// then (the printer gives up if it waits too long after sending 100), and
+	// sends the final reply on rc.
 	type reply struct {
 		status string
 		body   []byte
 		err    error
 	}
 	rc := make(chan reply, 1)
+	cont := make(chan struct{}, 1)
 	go func() {
-		s, b, e := ffReadResponse(bufio.NewReader(conn))
+		s, b, e := ffReadResponse(bufio.NewReader(conn), func() {
+			select {
+			case cont <- struct{}{}:
+			default:
+			}
+		})
 		rc <- reply{s, b, e}
 	}()
 
-	// Give the printer a moment to reject the headers before sending the body.
+	// Wait for "100 Continue" (then send the body at once), an early rejection,
+	// or a short grace period for a printer that doesn't send 100.
+	t0 := time.Now()
 	select {
 	case r := <-rc:
+		log.Printf("FlashForge upload: printer answered before the body: %q (err %v)", r.status, r.err)
 		return ffCheckReply(r.status, r.body, r.err)
-	case <-time.After(1500 * time.Millisecond):
+	case <-cont:
+		log.Printf("FlashForge upload: got 100 Continue after %s; sending body", time.Since(t0).Round(time.Millisecond))
+	case <-time.After(2 * time.Second):
+		log.Printf("FlashForge upload: no 100 Continue in 2s; sending body anyway")
 	}
 
 	// Stream the body. If the printer has already answered and stopped reading,
-	// the write errors; either way we then wait for the reply we read.
+	// the write errors; either way we then wait for the reply.
+	tb := time.Now()
+	var wrote int64
 	werr := func() error {
 		if _, err := conn.Write(pre); err != nil {
 			return err
 		}
-		if _, err := io.Copy(conn, file); err != nil {
+		n, err := io.Copy(conn, file)
+		wrote = n
+		if err != nil {
 			return err
 		}
-		_, err := conn.Write(post)
+		_, err = conn.Write(post)
 		return err
 	}()
+	log.Printf("FlashForge upload: wrote %d body bytes in %s (err %v); waiting for reply", wrote, time.Since(tb).Round(time.Millisecond), werr)
 
 	select {
 	case r := <-rc:
+		log.Printf("FlashForge upload: reply %q after %s", r.status, time.Since(tb).Round(time.Millisecond))
 		return ffCheckReply(r.status, r.body, r.err)
 	case <-time.After(3 * time.Minute):
 		if werr != nil {
@@ -968,9 +998,10 @@ func (f *FlashForge) rawUpload(ctx context.Context, hdr [][2]string, size int64,
 	}
 }
 
-// ffReadResponse reads one HTTP response, skipping any interim 1xx (100
-// Continue) responses, and returns the status line and the body.
-func ffReadResponse(br *bufio.Reader) (string, []byte, error) {
+// ffReadResponse reads one HTTP response, calling onContinue for each interim
+// 1xx (100 Continue) response, and returns the status line and body of the
+// first final (non-1xx) response.
+func ffReadResponse(br *bufio.Reader, onContinue func()) (string, []byte, error) {
 	for {
 		status, err := br.ReadString('\n')
 		if err != nil {
@@ -999,8 +1030,12 @@ func ffReadResponse(br *bufio.Reader) (string, []byte, error) {
 				}
 			}
 		}
-		// Interim 100 (and other 1xx): read the next response.
+		// Interim 100 (and other 1xx): tell the caller it may send the body, and
+		// read the next response.
 		if strings.HasPrefix(status, "HTTP/1.1 1") || strings.HasPrefix(status, "HTTP/1.0 1") {
+			if onContinue != nil {
+				onContinue()
+			}
 			continue
 		}
 		var body []byte

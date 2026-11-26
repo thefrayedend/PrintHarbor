@@ -1,2 +1,2 @@
-Build 90
-- FlashForge upload: reads the printer's answer while the file is still sending, so a rejection is caught at once instead of streaming the whole file into a printer that already said no, and the answer is read as a proper HTTP response instead of waiting for the connection to close. Fixes a long "sending…" hang after the 500 fix in build 89. The upload is also logged.
+Build 91
+- FlashForge upload: the body is now sent the moment the printer says "100 Continue" (some printers give up if it waits), a cancelled job aborts the upload at once, and the upload is logged in detail (100 received, bytes written, the printer's reply) so a failure is diagnosable.
