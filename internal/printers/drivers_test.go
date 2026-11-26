@@ -20,17 +20,32 @@ import (
 func TestFlashForge(t *testing.T) {
 	var mu sync.Mutex
 	var actions []string
-	var upload struct{ name, printNow, mapping string }
+	var upload struct {
+		name, printNow, mapping string
+		chunked                 bool
+		contentLen              int64
+	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/uploadGcode" {
 			if r.Header.Get("checkCode") != "abc" {
 				io.WriteString(w, `{"code":1,"message":"check code error"}`)
 				return
 			}
+			mu.Lock()
+			upload.contentLen = r.ContentLength
+			for _, te := range r.TransferEncoding {
+				if te == "chunked" {
+					upload.chunked = true
+				}
+			}
+			mu.Unlock()
 			r.ParseMultipartForm(1 << 20)
 			_, h, _ := r.FormFile("gcodeFile")
 			mu.Lock()
-			upload.name, upload.printNow, upload.mapping = h.Filename, r.Header.Get("printNow"), r.Header.Get("materialMappings")
+			upload.name, upload.printNow = h.Filename, r.Header.Get("printNow")
+			if b, err := base64.StdEncoding.DecodeString(r.Header.Get("materialMappings")); err == nil {
+				upload.mapping = string(b)
+			}
 			mu.Unlock()
 			io.WriteString(w, `{"code":0,"message":"Success"}`)
 			return
@@ -74,6 +89,14 @@ func TestFlashForge(t *testing.T) {
 	defer mu.Unlock()
 	if strings.Join(actions, ",") != "jobCtl_cmd:pause,lightControl_cmd:close" || upload.name != "a.gcode" || upload.printNow != "true" || !strings.Contains(upload.mapping, `"slotId":1`) {
 		t.Fatalf("actions %v upload %+v", actions, upload)
+	}
+	// FlashForge firmware 500s on a chunked upload: it must have a real
+	// Content-Length. The material mapping is OrcaSlicer's JSON, base64-encoded.
+	if upload.chunked || upload.contentLen <= 0 {
+		t.Errorf("upload must have Content-Length and not be chunked: len=%d chunked=%v", upload.contentLen, upload.chunked)
+	}
+	if !strings.Contains(upload.mapping, `"materialName":"PLA"`) || !strings.Contains(upload.mapping, `"toolId":0`) {
+		t.Errorf("mapping not OrcaSlicer format: %s", upload.mapping)
 	}
 	bad, _ := NewFlashForge(srv.URL, "SN1", "nope")
 	if _, err := bad.Status(ctx); err == nil || !strings.Contains(err.Error(), "pairing code") {

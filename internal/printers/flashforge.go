@@ -1,6 +1,7 @@
 package printers
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/base64"
@@ -8,7 +9,7 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"mime/multipart"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -778,8 +779,18 @@ func (f *FlashForge) Snapshot(ctx context.Context) ([]byte, string, error) {
 	return b, "image/jpeg", err
 }
 
-// Upload uses /uploadGcode; with start=true the printer starts right away.
-// A filament mapping (AD5X material station) is sent when one was chosen.
+// Upload sends a sliced file to the printer's /uploadGcode; with start=true the
+// printer starts it right away. A filament mapping (AD5X / Creator 5 material
+// station) is sent when one was chosen.
+//
+// This is written with a raw socket, exactly like FlashBridge's FlashForge
+// client (android-tv-app/source/lib/core/ff/ff_client.dart upload()), which is
+// how OrcaSlicer's own FlashForge sender does it. It matters: FlashForge
+// firmware rejects the upload with a 500 unless the request is sent its way —
+// a fixed Content-Length (NOT Go's chunked streaming), the header names in
+// their exact spelling (serialNumber, printNow…, which net/http would rewrite
+// to Serialnumber, Printnow), Expect: 100-continue honoured, and the body sent
+// after the printer answers 100. Going through net/http instead gave the 500.
 func (f *FlashForge) Upload(ctx context.Context, name string, r io.Reader, start bool) error {
 	if start {
 		f.clearFinishedJob(ctx)
@@ -790,74 +801,209 @@ func (f *FlashForge) Upload(ctx context.Context, name string, r io.Reader, start
 	}
 	defer os.Remove(tmp.Name())
 	size, err := io.Copy(tmp, r)
-	tmp.Close()
+	if cerr := tmp.Close(); err == nil {
+		err = cerr
+	}
 	if err != nil {
 		return err
 	}
-	pr, pw := io.Pipe()
-	mw := multipart.NewWriter(pw)
-	go func() {
-		err := func() error {
-			fw, err := mw.CreateFormFile("gcodeFile", ffFileName(name))
-			if err != nil {
-				return err
-			}
-			src, err := os.Open(tmp.Name())
-			if err != nil {
-				return err
-			}
-			defer src.Close()
-			if _, err := io.Copy(fw, src); err != nil {
-				return err
-			}
-			return mw.Close()
-		}()
-		pw.CloseWithError(err)
-	}()
-	req, _ := http.NewRequestWithContext(ctx, "POST", f.base.String()+"/uploadGcode", pr)
-	req.Header.Set("Content-Type", mw.FormDataContentType())
-	req.Header.Set("serialNumber", f.serial)
-	req.Header.Set("checkCode", f.code)
-	req.Header.Set("fileSize", strconv.FormatInt(size, 10))
-	req.Header.Set("printNow", strconv.FormatBool(start))
-	req.Header.Set("levelingBeforePrint", strconv.FormatBool(start && Level(ctx)))
-	req.Header.Set("flowCalibration", "false")
-	req.Header.Set("firstLayerInspection", "false")
-	req.Header.Set("timeLapseVideo", "false")
+
+	boundary := fmt.Sprintf("----printharbor%d", time.Now().UnixNano())
+	pre := []byte("--" + boundary + "\r\nContent-Disposition: form-data; name=\"gcodeFile\"; filename=\"" +
+		ffFileName(name) + "\"\r\nContent-Type: application/octet-stream\r\n\r\n")
+	post := []byte("\r\n--" + boundary + "--\r\n")
+
+	// materialMappings: OrcaSlicer's JSON, base64-encoded, like FlashBridge.
+	use := false
+	mapJSON := "[]"
 	if m := SlotMap(ctx); len(m) > 0 && start {
-		type mm struct {
-			ToolID int `json:"toolId"`
-			SlotID int `json:"slotId"`
+		type orcaMap struct {
+			MaterialName      string `json:"materialName"`
+			SlotID            int    `json:"slotId"`
+			SlotMaterialColor string `json:"slotMaterialColor"`
+			ToolID            int    `json:"toolId"`
+			ToolMaterialColor string `json:"toolMaterialColor"`
 		}
-		var maps []mm
-		for i, s := range m {
-			if s > 0 {
-				maps = append(maps, mm{ToolID: i, SlotID: s})
+		d, _ := f.cached(ctx)
+		var maps []orcaMap
+		for tool, slot := range m {
+			if slot <= 0 {
+				continue
 			}
+			om := orcaMap{SlotID: slot, ToolID: tool}
+			for _, s := range d.MatlStationInfo.SlotInfos {
+				if s.SlotID.I() == slot {
+					om.MaterialName = string(s.MaterialName)
+					om.SlotMaterialColor = ffHex(string(s.MaterialColor))
+					om.ToolMaterialColor = om.SlotMaterialColor
+					break
+				}
+			}
+			maps = append(maps, om)
 		}
 		if len(maps) > 0 {
-			j, _ := json.Marshal(maps)
-			req.Header.Set("useMatlStation", "true")
-			req.Header.Set("gcodeToolCnt", strconv.Itoa(len(m)))
-			req.Header.Set("materialMappings", string(j))
+			use = true
+			b, _ := json.Marshal(maps)
+			mapJSON = string(b)
 		}
 	}
-	resp, err := f.client.Do(req)
+	toolCnt := "0"
+	if use {
+		toolCnt = strconv.Itoa(len(SlotMap(ctx)))
+	}
+
+	// Headers in the exact order and spelling OrcaSlicer's sender uses.
+	host := f.base.Host
+	hdr := [][2]string{
+		{"Host", host},
+		{"Accept", "*/*"},
+		{"serialNumber", f.serial},
+		{"checkCode", f.code},
+		{"fileSize", strconv.FormatInt(size, 10)},
+		{"printNow", strconv.FormatBool(start)},
+		{"levelingBeforePrint", strconv.FormatBool(start && Level(ctx))},
+		{"flowCalibration", "false"},
+		{"firstLayerInspection", "false"},
+		{"timeLapseVideo", "false"},
+		{"useMatlStation", strconv.FormatBool(use)},
+		{"gcodeToolCnt", toolCnt},
+		{"materialMappings", base64.StdEncoding.EncodeToString([]byte(mapJSON))},
+		{"Content-Type", "multipart/form-data; boundary=" + boundary},
+		{"Content-Length", strconv.FormatInt(int64(len(pre))+size+int64(len(post)), 10)},
+		{"Expect", "100-continue"},
+		{"Connection", "close"},
+	}
+	body, err := os.Open(tmp.Name())
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
-	var env struct {
-		Code    int    `json:"code"`
-		Message string `json:"message"`
+	defer body.Close()
+	return f.rawUpload(ctx, hdr, pre, body, post)
+}
+
+// rawUpload opens a socket to the printer, writes the request line and headers,
+// waits for "100 Continue", then streams the body, and reads the answer.
+func (f *FlashForge) rawUpload(ctx context.Context, hdr [][2]string, pre []byte, file io.Reader, post []byte) error {
+	host := f.base.Host
+	if _, _, err := net.SplitHostPort(host); err != nil {
+		host += ":8898"
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&env); err != nil || env.Code != 0 {
-		if env.Message == "" {
-			env.Message = resp.Status
+	d := net.Dialer{Timeout: 8 * time.Second}
+	conn, err := d.DialContext(ctx, "tcp", host)
+	if err != nil {
+		return fmt.Errorf("could not reach the printer at %s: %w", f.base.Hostname(), err)
+	}
+	defer conn.Close()
+	if dl, ok := ctx.Deadline(); ok {
+		conn.SetDeadline(dl)
+	} else {
+		conn.SetDeadline(time.Now().Add(10 * time.Minute))
+	}
+
+	var head bytes.Buffer
+	head.WriteString("POST /uploadGcode HTTP/1.1\r\n")
+	for _, h := range hdr {
+		head.WriteString(h[0] + ": " + h[1] + "\r\n")
+	}
+	head.WriteString("\r\n")
+	if _, err := conn.Write(head.Bytes()); err != nil {
+		return fmt.Errorf("could not send to the printer: %w", err)
+	}
+
+	// Wait up to 2s for "100 Continue". If the printer instead sends its final
+	// answer now (it refuses with a 200 + error code, or a 500), read that.
+	br := bufio.NewReader(conn)
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	status, _ := br.ReadString('\n')
+	if status != "" && !strings.HasPrefix(status, "HTTP/1.1 100") {
+		rest, _ := io.ReadAll(io.LimitReader(br, 64<<10))
+		return ffUploadErr(status + rest2str(rest))
+	}
+	if strings.HasPrefix(status, "HTTP/1.1 100") {
+		// drain the rest of the 100-continue response (blank line)
+		for {
+			l, _ := br.ReadString('\n')
+			if l == "\r\n" || l == "\n" || l == "" {
+				break
+			}
 		}
-		return fmt.Errorf("flashforge upload: %s", env.Message)
+	}
+
+	// Send the body. Reset the deadline for the (possibly large) transfer.
+	if dl, ok := ctx.Deadline(); ok {
+		conn.SetWriteDeadline(dl)
+	} else {
+		conn.SetWriteDeadline(time.Now().Add(10 * time.Minute))
+	}
+	if _, err := conn.Write(pre); err == nil {
+		_, err = io.Copy(conn, file)
+		if err == nil {
+			_, err = conn.Write(post)
+		}
+	}
+	// Read the printer's answer whether or not the write erred: it often
+	// answers (with the reason) and then drops the connection.
+	conn.SetReadDeadline(time.Now().Add(3 * time.Minute))
+	resp, _ := io.ReadAll(br)
+	text := string(resp)
+	line := text
+	if i := strings.IndexByte(text, '\n'); i >= 0 {
+		line = text[:i]
+	}
+	if !strings.Contains(line, " 200") {
+		if strings.TrimSpace(line) == "" {
+			return fmt.Errorf("flashforge upload: the printer closed the connection without answering")
+		}
+		return ffUploadErr(text)
+	}
+	// 200: check the JSON body's code.
+	if i := strings.Index(text, "{"); i >= 0 {
+		var env struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		}
+		if json.Unmarshal([]byte(ffBody(text[i:])), &env) == nil && env.Code != 0 {
+			if env.Message == "" {
+				env.Message = fmt.Sprintf("code %d", env.Code)
+			}
+			return fmt.Errorf("flashforge upload: %s", env.Message)
+		}
 	}
 	return nil
+}
+
+func rest2str(b []byte) string { return string(b) }
+
+// ffBody trims a possibly chunked HTTP body down to its JSON object.
+func ffBody(s string) string {
+	if i := strings.LastIndex(s, "}"); i >= 0 {
+		return s[:i+1]
+	}
+	return s
+}
+
+func ffUploadErr(text string) error {
+	// Pull the printer's message out of whatever it sent back.
+	if i := strings.Index(text, "{"); i >= 0 {
+		var env struct {
+			Message string `json:"message"`
+		}
+		if json.Unmarshal([]byte(ffBody(text[i:])), &env) == nil && env.Message != "" {
+			return fmt.Errorf("flashforge upload: %s", env.Message)
+		}
+	}
+	line := strings.TrimSpace(text)
+	if i := strings.IndexByte(line, '\n'); i >= 0 {
+		line = strings.TrimSpace(line[:i])
+	}
+	if strings.HasPrefix(line, "HTTP/") {
+		line = strings.TrimSpace(strings.TrimPrefix(line, "HTTP/1.1"))
+		line = strings.TrimSpace(strings.TrimPrefix(line, "HTTP/1.0"))
+	}
+	if line == "" {
+		line = "the printer rejected the upload"
+	}
+	return fmt.Errorf("flashforge upload: %s", line)
 }
 
 // ffFileName is the name OrcaSlicer's FlashForge sender uses: only ASCII

@@ -1,2 +1,2 @@
-Build 88
-- Fixed: you couldn't slice or save a project when one plate held a model too big for the printer you were laid out for — it blocked everything, including the plates that fit. Saving now stores every plate regardless; a plate is only checked for fit when you actually slice or send it. So you can print the plates that fit this printer and send the oversized plate to a bigger printer. After saving, a note tells you which plates need a bigger printer.
+Build 89
+- Fixed: sending a sliced plate to a FlashForge printer (Creator 5 Pro / AD5X / Adventurer 5M) failed with "flashforge upload: 500 Internal Server Error". The upload is now sent exactly the way FlashBridge and OrcaSlicer send it: a real Content-Length instead of a streamed (chunked) body, the printer's exact header names, and the Expect: 100-continue handshake. Slicing and printer status were never affected.
