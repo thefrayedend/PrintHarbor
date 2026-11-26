@@ -1,2 +1,2 @@
-Build 89
-- Fixed: sending a sliced plate to a FlashForge printer (Creator 5 Pro / AD5X / Adventurer 5M) failed with "flashforge upload: 500 Internal Server Error". The upload is now sent exactly the way FlashBridge and OrcaSlicer send it: a real Content-Length instead of a streamed (chunked) body, the printer's exact header names, and the Expect: 100-continue handshake. Slicing and printer status were never affected.
+Build 90
+- FlashForge upload: reads the printer's answer while the file is still sending, so a rejection is caught at once instead of streaming the whole file into a printer that already said no, and the answer is read as a proper HTTP response instead of waiting for the connection to close. Fixes a long "sending…" hang after the 500 fix in build 89. The upload is also logged.
