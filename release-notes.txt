@@ -1,2 +1,2 @@
-Build 87
-- Fixed: changing the printer in the slicer (the "Lay out for" box) moved models off their plates when the two printers had different bed sizes. Every model now stays on the plate it was on, in the same spot. A model too big for the new printer's bed stays on its own plate and shows as not fitting, so you can send that plate to a bigger printer; it is never pushed onto another plate. A plate whose models fit can be sliced even if another plate has an oversized model.
+Build 88
+- Fixed: you couldn't slice or save a project when one plate held a model too big for the printer you were laid out for — it blocked everything, including the plates that fit. Saving now stores every plate regardless; a plate is only checked for fit when you actually slice or send it. So you can print the plates that fit this printer and send the oversized plate to a bigger printer. After saving, a note tells you which plates need a bigger printer.

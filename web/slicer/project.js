@@ -108,8 +108,11 @@ export async function saveToProject(asNew = false) {
   if (!S.info || !S.info.known) { F.toast('Pick a printer first.', true); return; }
   if (S.res.some((x) => x && x.job && x.job.state === 'slicing')) { F.toast('Wait for the slice to finish (or cancel it), then save.', true); return; }
   checkBounds();
-  const off = usedPlates().find((i) => platesObjects(i).some((o) => o.outside));
-  if (off !== undefined) { F.toast(`Some models on plate ${off + 1} are off the plate. Move them onto it first.`, true); setPlate(off); return; }
+  // A model bigger than THIS printer's bed does not stop the project being saved: every plate is
+  // stored, and when you send a plate it goes to a printer it fits on (bigger beds are re-matched).
+  // Only actually slicing a plate here checks it fits the printer you are on. So saving never blocks
+  // because another plate is too big for the printer you are laid out for.
+  const off = usedPlates().filter((i) => platesObjects(i).some((o) => o.outside));
   let id = !asNew && S.project ? S.project.id : '', name = S.project ? S.project.name : '';
   if (!id) {
     const first = S.objects[0].name || 'Project';
@@ -121,7 +124,7 @@ export async function saveToProject(asNew = false) {
   const pageMode = S.mode;
   try {
     for (const [k, i] of used.entries()) {
-      const pk = await packPlate(i);
+      const pk = await packPlate(i, true); // forSave: store the plate even if it is too big for this printer's bed
       if (!pk) { busy(null); return; }
       const list = platesObjects(i);
       const box = new THREE.Box3();
@@ -154,6 +157,7 @@ export async function saveToProject(asNew = false) {
     markSaved();
     if (window.parent !== window) window.parent.postMessage({ ph: 'project-saved', id: r.project.id }, location.origin);
     F.toast(S.pm ? `Saved ${r.project.name}.` : `Saved to ${r.project.name}: ${plates.length} plate${plates.length === 1 ? '' : 's'}. The Projects page and the queue now print ${plates.length === 1 ? 'it' : 'them'} exactly like this.`);
+    if (off.length) F.toast(`Saved. Plate${off.length === 1 ? '' : 's'} ${off.map((i) => usedPlates().indexOf(i) + 1).join(', ')} ${off.length === 1 ? 'has a model' : 'have models'} bigger than the ${S.info.name} bed — slice ${off.length === 1 ? 'it' : 'them'} on a bigger printer. The other plates slice here.`);
     return true;
   } catch (e) {
     F.toast('Could not save the project: ' + e.message, true);
@@ -189,14 +193,18 @@ let pollTimer = null, queue = [];
  * pictures). Used for slicing here and for saving the plate into its project. null = it cannot
  * be packed (the reason was shown).
  */
-function packPlate(i) { return withPlateSettings(i, () => packPlateNow(i)); }
-async function packPlateNow(i) {
+// forSave: pack the plate's models just to store it in the project, even if a model is bigger than
+// the printer the slicer is laid out for, or the plate would not slice on this machine's memory.
+// Those are checked only when a plate is actually sliced or sent. Without forSave this packs a plate
+// to slice it now, and refuses a plate that will not slice on this printer.
+function packPlate(i, forSave = false) { return withPlateSettings(i, () => packPlateNow(i, forSave)); }
+async function packPlateNow(i, forSave = false) {
   const list = platesObjects(i);
   if (!list.length) { F.toast(`Plate ${i + 1} is empty.`, true); return null; }
   checkBounds();
-  if (list.some((o) => o.outside)) { F.toast(`Some models on plate ${i + 1} are off the plate. Move them onto it first.`, true); setPlate(i); location.hash = '#slicer/prepare'; return null; }
+  if (!forSave && list.some((o) => o.outside)) { F.toast(`Some models on plate ${i + 1} are off the plate. Move them onto it first.`, true); setPlate(i); location.hash = '#slicer/prepare'; return null; }
   // Board memory: a layer height finer than this plate allows is raised before slicing (see plateMemory)
-  {
+  if (!forSave) {
     const min = minLayerHeight(i), h = +valueOf('layer_height') || 0.2;
     if (min === null) {
       F.toast(`Plate ${i + 1} needs more memory than PrintHarbor has, even at the coarsest layer height. Paint supports only where needed, or move some models to another plate.`, true);
