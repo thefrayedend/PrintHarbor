@@ -1,2 +1,2 @@
-Build 91
-- FlashForge upload: the body is now sent the moment the printer says "100 Continue" (some printers give up if it waits), a cancelled job aborts the upload at once, and the upload is logged in detail (100 received, bytes written, the printer's reply) so a failure is diagnosable.
+Build 92
+- FlashForge upload rewritten to mirror FlashBridge exactly: the socket is drained continuously in the background (so the printer is never blocked from answering), the body is sent after "100 Continue", and the printer's answer is read after it closes the connection. Fixes the "sending…" hang and surfaces the printer's actual message if it rejects a file.

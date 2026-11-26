@@ -1,7 +1,6 @@
 package printers
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/base64"
@@ -890,12 +889,12 @@ func (f *FlashForge) Upload(ctx context.Context, name string, r io.Reader, start
 	return err
 }
 
-// rawUpload opens a socket to the printer, writes the request line and headers,
-// then streams the body, reading the printer's answer at the same time so an
-// early rejection (before the whole file is sent) is caught straight away
-// instead of streaming megabytes into a printer that already said no. The
-// answer is read as a real HTTP response (by its Content-Length / chunked),
-// not by waiting for the socket to close.
+// rawUpload sends the file to the printer over a raw socket, a faithful port of
+// FlashBridge's FlashForge client (ff_client.dart upload()): it drains the
+// socket in the background the whole time so the printer is never blocked from
+// answering, waits for the "100 Continue", streams the body, and then waits for
+// the printer to close the connection ("Connection: close") and reads the
+// answer out of everything it sent.
 func (f *FlashForge) rawUpload(ctx context.Context, hdr [][2]string, size int64, pre []byte, file io.Reader, post []byte) error {
 	host := f.base.Host
 	if _, _, err := net.SplitHostPort(host); err != nil {
@@ -907,8 +906,6 @@ func (f *FlashForge) rawUpload(ctx context.Context, hdr [][2]string, size int64,
 		return fmt.Errorf("could not reach the printer at %s: %w", f.base.Hostname(), err)
 	}
 	defer conn.Close()
-	// A generous overall cap so a wedged transfer can't hang for ever; and the
-	// socket is closed if the job is cancelled, which unblocks the read/write.
 	deadline := time.Now().Add(6 * time.Minute)
 	if dl, ok := ctx.Deadline(); ok && dl.Before(deadline) {
 		deadline = dl
@@ -916,13 +913,42 @@ func (f *FlashForge) rawUpload(ctx context.Context, hdr [][2]string, size int64,
 	conn.SetDeadline(deadline)
 	stop := make(chan struct{})
 	defer close(stop)
-	go func() {
+	go func() { // cancelling the job closes the socket, unblocking everything
 		select {
 		case <-ctx.Done():
 			conn.Close()
 		case <-stop:
 		}
 	}()
+
+	// Drain the socket continuously into a buffer (like FlashBridge's
+	// sock.listen). firstData fires on the first bytes, closed when the printer
+	// hangs up.
+	var mu sync.Mutex
+	var buf []byte
+	firstData := make(chan struct{}, 1)
+	closed := make(chan struct{})
+	go func() {
+		tmp := make([]byte, 32<<10)
+		for {
+			n, err := conn.Read(tmp)
+			if n > 0 {
+				mu.Lock()
+				buf = append(buf, tmp[:n]...)
+				mu.Unlock()
+				select {
+				case firstData <- struct{}{}:
+				default:
+				}
+			}
+			if err != nil {
+				close(closed)
+				return
+			}
+		}
+	}()
+	snapshot := func() string { mu.Lock(); defer mu.Unlock(); return string(buf) }
+	reset := func() { mu.Lock(); buf = buf[:0]; mu.Unlock() }
 
 	var head bytes.Buffer
 	head.WriteString("POST /uploadGcode HTTP/1.1\r\n")
@@ -934,157 +960,60 @@ func (f *FlashForge) rawUpload(ctx context.Context, hdr [][2]string, size int64,
 		return fmt.Errorf("could not send to the printer: %w", err)
 	}
 
-	// Read the printer's reply in the background. It signals "continue" as soon
-	// as the printer answers "100 Continue", so the body is sent immediately
-	// then (the printer gives up if it waits too long after sending 100), and
-	// sends the final reply on rc.
-	type reply struct {
-		status string
-		body   []byte
-		err    error
-	}
-	rc := make(chan reply, 1)
-	cont := make(chan struct{}, 1)
-	go func() {
-		s, b, e := ffReadResponse(bufio.NewReader(conn), func() {
-			select {
-			case cont <- struct{}{}:
-			default:
-			}
-		})
-		rc <- reply{s, b, e}
-	}()
-
-	// Wait for "100 Continue" (then send the body at once), an early rejection,
-	// or a short grace period for a printer that doesn't send 100.
-	t0 := time.Now()
+	// Wait briefly for "100 Continue" (proceed anyway after 2s, like curl).
 	select {
-	case r := <-rc:
-		log.Printf("FlashForge upload: printer answered before the body: %q (err %v)", r.status, r.err)
-		return ffCheckReply(r.status, r.body, r.err)
-	case <-cont:
-		log.Printf("FlashForge upload: got 100 Continue after %s; sending body", time.Since(t0).Round(time.Millisecond))
+	case <-firstData:
+	case <-closed:
 	case <-time.After(2 * time.Second):
-		log.Printf("FlashForge upload: no 100 Continue in 2s; sending body anyway")
 	}
+	early := snapshot()
+	if strings.HasPrefix(early, "HTTP/") && !strings.HasPrefix(early, "HTTP/1.1 100") {
+		log.Printf("FlashForge upload: printer rejected it before the body: %s", ffFirstLine(early))
+		return ffUploadErr(early)
+	}
+	reset() // discard the 100 Continue
 
-	// Stream the body. If the printer has already answered and stopped reading,
-	// the write errors; either way we then wait for the reply.
+	// Stream the body. The background reader keeps draining, so if the printer
+	// answers (and stops reading) mid-upload, the write just errors here.
 	tb := time.Now()
-	var wrote int64
-	werr := func() error {
-		if _, err := conn.Write(pre); err != nil {
-			return err
+	var werr error
+	if _, werr = conn.Write(pre); werr == nil {
+		if _, werr = io.Copy(conn, file); werr == nil {
+			_, werr = conn.Write(post)
 		}
-		n, err := io.Copy(conn, file)
-		wrote = n
-		if err != nil {
-			return err
-		}
-		_, err = conn.Write(post)
-		return err
-	}()
-	log.Printf("FlashForge upload: wrote %d body bytes in %s (err %v); waiting for reply", wrote, time.Since(tb).Round(time.Millisecond), werr)
+	}
+	log.Printf("FlashForge upload: body sent in %s (write err %v); waiting for the printer's answer", time.Since(tb).Round(time.Millisecond), werr)
 
+	// Wait for the printer to close the connection, then read its answer.
 	select {
-	case r := <-rc:
-		log.Printf("FlashForge upload: reply %q after %s", r.status, time.Since(tb).Round(time.Millisecond))
-		return ffCheckReply(r.status, r.body, r.err)
+	case <-closed:
 	case <-time.After(3 * time.Minute):
-		if werr != nil {
-			return fmt.Errorf("flashforge upload: the printer stopped accepting the file (%v)", werr)
-		}
-		return fmt.Errorf("flashforge upload: the printer did not answer after the file was sent")
 	}
-}
-
-// ffReadResponse reads one HTTP response, calling onContinue for each interim
-// 1xx (100 Continue) response, and returns the status line and body of the
-// first final (non-1xx) response.
-func ffReadResponse(br *bufio.Reader, onContinue func()) (string, []byte, error) {
-	for {
-		status, err := br.ReadString('\n')
-		if err != nil {
-			return strings.TrimSpace(status), nil, err
+	text := snapshot()
+	for strings.HasPrefix(text, "HTTP/1.1 100") { // strip any interim 100
+		i := strings.Index(text, "\r\n\r\n")
+		if i < 0 {
+			break
 		}
-		status = strings.TrimRight(status, "\r\n")
-		var contentLen = -1
-		chunked := false
-		for {
-			h, err := br.ReadString('\n')
-			if err != nil {
-				return status, nil, err
-			}
-			if h == "\r\n" || h == "\n" {
-				break
-			}
-			k, v, _ := strings.Cut(h, ":")
-			switch strings.ToLower(strings.TrimSpace(k)) {
-			case "content-length":
-				if n, e := strconv.Atoi(strings.TrimSpace(v)); e == nil {
-					contentLen = n
-				}
-			case "transfer-encoding":
-				if strings.Contains(strings.ToLower(v), "chunked") {
-					chunked = true
-				}
-			}
-		}
-		// Interim 100 (and other 1xx): tell the caller it may send the body, and
-		// read the next response.
-		if strings.HasPrefix(status, "HTTP/1.1 1") || strings.HasPrefix(status, "HTTP/1.0 1") {
-			if onContinue != nil {
-				onContinue()
-			}
-			continue
-		}
-		var body []byte
-		switch {
-		case chunked:
-			for {
-				line, err := br.ReadString('\n')
-				if err != nil {
-					break
-				}
-				n, perr := strconv.ParseInt(strings.TrimSpace(line), 16, 64)
-				if perr != nil || n == 0 {
-					break
-				}
-				chunk := make([]byte, n)
-				if _, err := io.ReadFull(br, chunk); err != nil {
-					break
-				}
-				body = append(body, chunk...)
-				br.ReadString('\n') // trailing CRLF
-			}
-		case contentLen > 0:
-			body = make([]byte, contentLen)
-			io.ReadFull(br, body)
-		default:
-			// No length given: read whatever is there (until close).
-			body, _ = io.ReadAll(io.LimitReader(br, 64<<10))
-		}
-		return status, body, nil
+		text = text[i+4:]
 	}
-}
-
-// ffCheckReply turns the printer's HTTP response into success or an error.
-func ffCheckReply(status string, body []byte, err error) error {
-	if status == "" {
-		if err != nil {
-			return fmt.Errorf("flashforge upload: %v", err)
-		}
-		return fmt.Errorf("flashforge upload: the printer closed the connection without answering")
-	}
+	status := ffFirstLine(text)
 	if !strings.Contains(status, " 200") {
-		return ffUploadErr(status + "\n" + string(body))
+		if strings.TrimSpace(text) == "" {
+			if werr != nil {
+				return fmt.Errorf("flashforge upload: the printer stopped accepting the file (%v)", werr)
+			}
+			return fmt.Errorf("flashforge upload: the printer did not answer")
+		}
+		log.Printf("FlashForge upload: printer said: %s", status)
+		return ffUploadErr(text)
 	}
-	if i := strings.IndexByte(string(body), '{'); i >= 0 {
+	if i := strings.IndexByte(text, '{'); i >= 0 {
 		var env struct {
 			Code    int    `json:"code"`
 			Message string `json:"message"`
 		}
-		if json.Unmarshal([]byte(ffBody(string(body)[i:])), &env) == nil && env.Code != 0 {
+		if json.Unmarshal([]byte(ffBody(text[i:])), &env) == nil && env.Code != 0 {
 			if env.Message == "" {
 				env.Message = fmt.Sprintf("code %d", env.Code)
 			}
@@ -1092,6 +1021,13 @@ func ffCheckReply(status string, body []byte, err error) error {
 		}
 	}
 	return nil
+}
+
+func ffFirstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return strings.TrimSpace(s[:i])
+	}
+	return strings.TrimSpace(s)
 }
 
 // ffBody trims a body down to its JSON object.
