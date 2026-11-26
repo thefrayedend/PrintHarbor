@@ -1,8 +1,8 @@
 // Slicer page: the printer being sliced for, its Orca profiles and its filaments.
 // See slicer.js for the list of files.
 import { S, F } from './core.js';
-import { invalidate } from './scene.js';
-import { buildBed } from './plates.js';
+import { invalidate, bed } from './scene.js';
+import { buildBed, stride, plateX } from './plates.js';
 import { recolor, checkBounds } from './objects.js';
 import { renderSide } from './toolbar.js';
 import { tidyNumber } from './panels.js';
@@ -32,13 +32,18 @@ async function loadPrinterInner(id, extra) {
   renderSide();
   const prefs = loadPrefs(id);
   const q = `id=${encodeURIComponent(id)}${prefs.machine && !extra ? '&machine=' + encodeURIComponent(prefs.machine) : ''}${extra}`;
+  // Beds of different printers are different sizes, and the plates stand a
+  // bed-width apart, so the whole row of plates is spaced differently per
+  // printer. Remember this printer's bed and spacing before switching, so the
+  // models can be kept on their own plates on the new bed (see adaptToPrinter).
+  const prev = S.info && S.info.bed ? { bed: { ...bed() }, stride: stride() } : null;
   const r = await F.api('slicer/printer?' + q);
   S.loading = false;
   if (!r.ok) { S.info = null; S.err = r.message || 'Could not read the printer profiles.'; renderSide(); return; }
   S.info = r;
   if (!r.known) { renderSide(); return; }
   if (!S.schema) { const sc = await F.api('slicer/schema'); S.schema = sc.settings || []; }
-  if (S.pm || S.project) { await adaptToPrinter(r); return; }
+  if (S.pm || S.project) { await adaptToPrinter(r, prev); return; }
   S.process = r.processes.includes(prefs.process) ? prefs.process : r.defaultProcess;
   S.bedType = prefs.bedType || r.defaultBedType || '';
   S.overrides = prefs.overrides && typeof prefs.overrides === 'object' ? prefs.overrides : {};
@@ -61,11 +66,13 @@ async function loadPrinterInner(id, extra) {
 }
 
 /**
- * A project laid out for another printer: colours keep their colour and material (each gets this
- * printer's profile for that material), every plate keeps its setting changes, the quality profile
- * is this printer's with the same layer height.
+ * A project laid out for another printer: every model stays on the plate it was on, in the same
+ * spot on that plate; colours keep their colour and material (each gets this printer's profile for
+ * that material), every plate keeps its setting changes, the quality profile is this printer's with
+ * the same layer height. A model too big for the new bed stays on its own plate and shows as not
+ * fitting (so you can send that plate to a bigger printer) — it is never shoved onto another plate.
  */
-async function adaptToPrinter(r) {
+async function adaptToPrinter(r, prev) {
   const fam = (p) => F.family(String(p || 'PLA').replace(/^(Flashforge|Generic|FusRock|Creality|Bambu|Qidi|Snapmaker|Elegoo|Sovol)\s+/i, ''));
   const layer = (n) => (/^(\d+\.\d+)/.exec(n || '') || [])[1];
   const want = layer(S.process);
@@ -78,10 +85,32 @@ async function adaptToPrinter(r) {
   if (S.ready) clearPreview();
   await loadValues();
   buildBed();
+  keepOnPlates(prev);
   for (const o of S.objects) recolor(o);
   checkBounds();
   renderSide();
   invalidate();
+}
+
+/**
+ * After the bed changed, move every model so it sits in the same place on the same plate as before.
+ * Each plate's new bed is somewhere else in the row (the plates are a bed-width apart, and the bed
+ * width changed), so without this the models — whose world positions did not change — would end up
+ * off their plates, worse the further along the row they are. prev holds the old bed and spacing;
+ * o.plate still holds the plate each model was on. The model keeps its offset from its plate's near
+ * corner, so its layout on the plate is unchanged.
+ */
+function keepOnPlates(prev) {
+  if (!prev) return;
+  const b = bed();
+  for (const o of S.objects) {
+    const i = o.plate || 0;
+    const oldOriginX = prev.bed.x0 + i * prev.stride;
+    const newOriginX = b.x0 + plateX(i);
+    o.mesh.position.x += newOriginX - oldOriginX;
+    o.mesh.position.y += b.y0 - prev.bed.y0;
+    o.mesh.updateMatrixWorld(true);
+  }
 }
 export async function loadValues() {
   const r = await F.api(`slicer/resolved?id=${encodeURIComponent(S.printerId)}&machine=${encodeURIComponent(S.info.machine)}&process=${encodeURIComponent(S.process)}`);

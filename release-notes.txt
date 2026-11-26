@@ -1,2 +1,2 @@
-Build 86
-- Fixed: "Mark printed" did nothing on a plate whose print PrintHarbor still showed as "printing" because the printer never reported it finished (turned off or disconnected after the print). It now counts that as done, the same as a print you checked off.
+Build 87
+- Fixed: changing the printer in the slicer (the "Lay out for" box) moved models off their plates when the two printers had different bed sizes. Every model now stays on the plate it was on, in the same spot. A model too big for the new printer's bed stays on its own plate and shows as not fitting, so you can send that plate to a bigger printer; it is never pushed onto another plate. A plate whose models fit can be sliced even if another plate has an oversized model.
