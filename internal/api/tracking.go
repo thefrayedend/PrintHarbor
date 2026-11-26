@@ -299,26 +299,23 @@ func (a *App) MarkPrinted(projectID string, plate int, done bool) error {
 		a.saveRunsLocked()
 		return nil
 	}
-	// A print of this plate that finished and is waiting for you to check it
-	// really was printed: marking the plate printed accepts it (as OK on the
-	// project's "how did it come out?" line would). Only the copies still
-	// missing after that are added as marked by hand.
-	acc, pr := 0, 0
+	// Marking the plate printed accepts a real print of it, so it counts as
+	// done and is not double-counted with a hand-marked copy. That covers a
+	// print finished and waiting to be checked ("how did it come out?"), AND
+	// one PrintHarbor still shows as printing because the printer never
+	// reported it done (turned off or disconnected after the print) — pressing
+	// Mark printed is you saying it did finish. Only copies with no real print
+	// at all are then filled in by hand.
+	acc := 0
 	need := copiesFor(p, plate)
 	now := time.Now()
 	for _, r := range a.runs {
-		if r.ProjectID != projectID || r.Plate != plate {
-			continue
-		}
-		switch r.State {
-		case "accepted":
+		if r.ProjectID == projectID && r.Plate == plate && r.State == "accepted" {
 			acc++
-		case "printing":
-			pr++
 		}
 	}
 	for _, r := range a.runs {
-		if r.ProjectID == projectID && r.Plate == plate && r.State == "printed" && acc+pr < need {
+		if r.ProjectID == projectID && r.Plate == plate && (r.State == "printed" || r.State == "printing") && acc < need {
 			r.State = "accepted"
 			if r.Finished.IsZero() {
 				r.Finished = now
@@ -326,6 +323,9 @@ func (a *App) MarkPrinted(projectID string, plate int, done bool) error {
 			acc++
 		}
 	}
+	// A plate still being sliced or sent is genuinely in progress: leave it,
+	// and don't add a hand-marked copy for the one it will produce.
+	pr := 0
 	for _, j := range a.Queue.List() {
 		if j.ProjectID == projectID && j.Plate == plate && j.Start && (j.State == slicer.Queued || j.State == slicer.Slicing || j.State == slicer.Sending) {
 			pr++

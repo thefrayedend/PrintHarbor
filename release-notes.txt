@@ -1,2 +1,2 @@
-Build 85
-- Printed plates are red in the slicer: the bed itself, its tab in the plate bar, and the "✓ Printed 1/1" line. Plates still to print stay grey.
+Build 86
+- Fixed: "Mark printed" did nothing on a plate whose print PrintHarbor still showed as "printing" because the printer never reported it finished (turned off or disconnected after the print). It now counts that as done, the same as a print you checked off.

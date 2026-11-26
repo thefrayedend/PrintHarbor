@@ -58,3 +58,38 @@ func TestMarkPrintedAcceptsAFinishedPrint(t *testing.T) {
 		}
 	}
 }
+
+// A print the printer never reported done stays "printing" for ever, so it is
+// never offered for checking. Mark printed must still count it as done, not
+// treat it as in progress and do nothing (the real bug: plate showed
+// "0/1 · 1 printing" and Mark printed changed nothing).
+func TestMarkPrintedClearsAStuckPrint(t *testing.T) {
+	a := libApp(t, t.TempDir())
+	tmp := filepath.Join(t.TempDir(), "kit.3mf")
+	os.WriteFile(tmp, project3mf(t), 0o644)
+	p, err := a.AddProject([]Upload{{Name: "Kit.3mf", Tmp: tmp}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// finished time never set: the printer went offline before reporting done
+	a.runsMu.Lock()
+	a.runs = append(a.runs, &Run{ID: runID(), ProjectID: p.ID, ProjectName: p.Name, Plate: 1, PrinterName: "U2", State: "printing", Started: time.Now().Add(-6 * time.Hour)})
+	a.runsMu.Unlock()
+	plate1 := func() PlateProgress {
+		for _, x := range a.Progress(p) {
+			if x.Plate == 1 {
+				return x
+			}
+		}
+		return PlateProgress{}
+	}
+	if x := plate1(); x.Printing != 1 || x.Accepted != 0 {
+		t.Fatalf("before: %+v", x)
+	}
+	if err := a.MarkPrinted(p.ID, 1, true); err != nil {
+		t.Fatal(err)
+	}
+	if x := plate1(); x.Accepted != 1 || x.Printing != 0 || x.Manual != 0 || x.Remaining != 0 {
+		t.Fatalf("a stuck print was not cleared by Mark printed: %+v", x)
+	}
+}
